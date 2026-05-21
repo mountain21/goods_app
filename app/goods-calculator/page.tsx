@@ -116,10 +116,11 @@ function ErrorView({ message }: { message: string }) {
 export default async function GoodsCalculator({
   searchParams,
 }: {
-  searchParams?: Promise<{ event_id?: string }>;
+  searchParams?: Promise<{ event_id?: string; list_id?: string }>;
 }) {
   const resolvedSearchParams = await searchParams;
   const eventId = resolvedSearchParams?.event_id ?? FALLBACK_EVENT_ID;
+  const listId = resolvedSearchParams?.list_id ?? null;
   let data: Awaited<ReturnType<typeof loadCalculatorData>>;
 
   try {
@@ -133,7 +134,11 @@ export default async function GoodsCalculator({
   return (
     <div className="min-h-screen bg-slate-50/50 px-4 py-10">
       <main className="mx-auto max-w-6xl space-y-8">
-        <GoodsCalculatorClient goods={data.goods} event={data.event} />
+        <GoodsCalculatorClient
+          goods={data.goods}
+          event={data.event}
+          initialListId={listId}
+        />
       </main>
     </div>
   );

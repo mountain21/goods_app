@@ -67,9 +67,17 @@ type ListItemInsertRow = {
   quantity: number;
 };
 
+type ExistingListItemRow = {
+  item_id: string;
+  goods_id?: string | null;
+  variant_id?: string | null;
+  quantity: number | null;
+};
+
 type Props = {
   goods: Good[];
   event: Event;
+  initialListId?: string | null;
 };
 
 function createDummyEmail(userName: string) {
@@ -90,13 +98,24 @@ function isQuantitiesRecord(value: unknown): value is Record<string, number> {
   );
 }
 
-export function GoodsCalculatorClient({ goods, event }: Props) {
+function qKey(goodsId: string, variantId: string | null) {
+  return `${goodsId}::${variantId ?? "null"}`;
+}
+
+export function GoodsCalculatorClient({
+  goods,
+  event,
+  initialListId,
+}: Props) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
   const { toast } = useToast();
 
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoadingExistingList, setIsLoadingExistingList] = useState(
+    Boolean(initialListId)
+  );
   const [user, setUser] = useState<User | null>(null);
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
   const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
@@ -108,9 +127,6 @@ export function GoodsCalculatorClient({ goods, event }: Props) {
     () => new Map(goods.map((good) => [good.goods_id, good])),
     [goods]
   );
-
-  const qKey = (goodsId: string, variantId: string | null) =>
-    `${goodsId}::${variantId ?? "null"}`;
 
   const getQuantity = (goodsId: string, variantId: string | null) =>
     quantities[qKey(goodsId, variantId)] ?? 0;
@@ -137,7 +153,10 @@ export function GoodsCalculatorClient({ goods, event }: Props) {
   const bump = (goodsId: string, variantId: string | null, delta: number) => {
     const good = goodsById.get(goodsId);
     const max = good?.max_quantity ?? 9999;
-    const next = Math.max(0, Math.min(max, getQuantity(goodsId, variantId) + delta));
+    const next = Math.max(
+      0,
+      Math.min(max, getQuantity(goodsId, variantId) + delta)
+    );
     setQuantity(goodsId, variantId, next);
   };
 
@@ -174,13 +193,17 @@ export function GoodsCalculatorClient({ goods, event }: Props) {
       setUser(data.session?.user ?? null);
     });
 
+    if (initialListId) return;
+
     try {
       const rawValue = window.localStorage.getItem(
         SELECTED_QUANTITIES_STORAGE_KEY
       );
       if (!rawValue) return;
 
-      const parsed = JSON.parse(rawValue) as StoredQuantities | Record<string, number>;
+      const parsed = JSON.parse(rawValue) as
+        | StoredQuantities
+        | Record<string, number>;
       const restoredQuantities =
         "quantities" in parsed ? parsed.quantities : parsed;
       const storedEventId = "event_id" in parsed ? parsed.event_id : undefined;
@@ -200,7 +223,93 @@ export function GoodsCalculatorClient({ goods, event }: Props) {
       console.error("restore selected quantities error:", error);
       window.localStorage.removeItem(SELECTED_QUANTITIES_STORAGE_KEY);
     }
-  }, [event.event_id, supabase, toast]);
+  }, [event.event_id, initialListId, supabase, toast]);
+
+  useEffect(() => {
+    if (!initialListId) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadExistingList = async () => {
+      setIsLoadingExistingList(true);
+
+      try {
+        const {
+          data: { session },
+          error: sessionError,
+        } = await supabase.auth.getSession();
+
+        if (sessionError) throw sessionError;
+        if (!session?.user) {
+          throw new Error("ログイン状態を確認できませんでした。");
+        }
+
+        const { data: listData, error: listError } = await supabase
+          .from("shopping_list")
+          .select("shopping_list_id,event_id,user_id")
+          .eq("shopping_list_id", initialListId)
+          .eq("user_id", session.user.id)
+          .maybeSingle();
+
+        if (listError) throw listError;
+        if (!listData) {
+          throw new Error("編集対象の買い物リストが見つかりませんでした。");
+        }
+        if (listData.event_id !== event.event_id) {
+          throw new Error("買い物リストとイベントの紐づきが一致しません。");
+        }
+
+        const { data: itemData, error: itemError } = await supabase
+          .from("list_item")
+          .select("item_id,goods_id,variant_id,quantity")
+          .eq("list_id", initialListId);
+
+        if (itemError) throw itemError;
+
+        const restoredQuantities = (
+          (itemData ?? []) as ExistingListItemRow[]
+        ).reduce<Record<string, number>>((next, item) => {
+          const goodsId = item.goods_id ?? item.item_id;
+          const quantity = item.quantity ?? 0;
+
+          if (goodsId && quantity > 0) {
+            next[qKey(goodsId, item.variant_id ?? null)] = quantity;
+          }
+
+          return next;
+        }, {});
+
+        if (!cancelled) {
+          setQuantities(restoredQuantities);
+          toast({ title: "買い物リストを編集用に読み込みました" });
+        }
+      } catch (error) {
+        console.error("load existing shopping list error:", error);
+        if (!cancelled) {
+          toast({
+            title: "買い物リストの読み込みに失敗しました",
+            description:
+              error instanceof Error
+                ? error.message
+                : "編集データを取得できませんでした",
+            variant: "destructive",
+          });
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingExistingList(false);
+        }
+      }
+    };
+
+    void loadExistingList();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [event.event_id, initialListId, supabase, toast]);
 
   useEffect(() => {
     const {
@@ -213,7 +322,6 @@ export function GoodsCalculatorClient({ goods, event }: Props) {
   }, [supabase]);
 
   const handleSaveCart = async () => {
-    console.log("--- 保存処理スタート ---");
     setIsSaving(true);
 
     try {
@@ -223,30 +331,12 @@ export function GoodsCalculatorClient({ goods, event }: Props) {
       } = await supabase.auth.getSession();
 
       if (!session?.user || !session.access_token || sessionError) {
-        console.error("【認証エラー】セッションが取得できません:", sessionError);
+        console.error("auth session error:", sessionError);
         persistSelectedQuantities();
         setAuthDialogOpen(true);
-        alert(
-          "ログインセッションが見つかりません。一度ログインしてから再度保存してください。"
-        );
+        alert("ログイン後にもう一度保存してください。");
         return;
       }
-
-      console.log("現在ログイン中のユーザーUUID:", session.user.id);
-
-      const eventId = event.event_id;
-      const eventTitle = event.event_name || "イベント";
-      const insertData = {
-        user_id: session.user.id,
-        event_id: eventId,
-        list_name: `${eventTitle}の買い物リスト`,
-      };
-
-      console.log("Supabaseに送信する直前のデータ:", insertData);
-      console.log("Authorization header will be attached:", {
-        hasAccessToken: Boolean(session.access_token),
-        tokenPrefix: session.access_token.slice(0, 12),
-      });
 
       const authedSupabase = createBrowserClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -260,68 +350,86 @@ export function GoodsCalculatorClient({ goods, event }: Props) {
         }
       );
 
-      const { data: listData, error: listError } = await authedSupabase
-        .from("shopping_list")
-        .insert([insertData])
-        .select();
+      const eventTitle = event.event_name || "イベント";
+      const listPayload = {
+        user_id: session.user.id,
+        event_id: event.event_id,
+        list_name: `${eventTitle}の買い物リスト`,
+      };
 
-      if (listError) {
-        console.error("shopping_listへのインサートに失敗しました。");
-        console.error("エラーコード(code):", listError.code);
-        console.error("メッセージ(message):", listError.message);
-        console.error("エラー詳細(details):", listError.details);
-        console.error("ヒント(hint):", listError.hint);
-        alert(`保存失敗: ${listError.message} (詳細はコンソールを確認してください)`);
-        return;
+      let savedListId = initialListId ?? null;
+
+      if (savedListId) {
+        const { data: updatedRows, error: updateError } = await authedSupabase
+          .from("shopping_list")
+          .update(listPayload)
+          .eq("shopping_list_id", savedListId)
+          .eq("user_id", session.user.id)
+          .select("shopping_list_id");
+
+        if (updateError) throw updateError;
+        if (!updatedRows || updatedRows.length !== 1) {
+          throw new Error("更新対象の買い物リストを確認できませんでした。");
+        }
+
+        const { error: deleteItemsError } = await authedSupabase
+          .from("list_item")
+          .delete()
+          .eq("list_id", savedListId);
+
+        if (deleteItemsError) throw deleteItemsError;
+      } else {
+        const { data: listData, error: listError } = await authedSupabase
+          .from("shopping_list")
+          .insert([listPayload])
+          .select();
+
+        if (listError) throw listError;
+
+        const insertedList = (
+          listData as Array<ShoppingListInsertResult> | null
+        )?.[0];
+        savedListId = insertedList?.id || insertedList?.shopping_list_id || null;
+
+        if (!savedListId) {
+          throw new Error("買い物リストIDを取得できませんでした。");
+        }
       }
-
-      console.log("shopping_listへのインサート成功。返ってきたデータ:", listData);
-
-      const insertedList = (listData as Array<ShoppingListInsertResult> | null)?.[0];
-      const insertedListId = insertedList?.id || insertedList?.shopping_list_id;
-
-      if (!insertedListId) {
-        console.error("shopping_listのIDを取得できませんでした。返却データ:", listData);
-        alert("保存失敗: 買い物リストIDを取得できませんでした。");
-        return;
-      }
-
-      console.log("list_itemに紐づける親リストID:", insertedListId);
 
       const itemsToInsert: ListItemInsertRow[] = Object.entries(quantities)
         .filter(([, qty]) => qty > 0)
         .map(([itemId, qty]) => {
           const [goodsId, variantIdValue] = itemId.split("::");
           return {
-            list_id: insertedListId,
+            list_id: savedListId,
             goods_id: goodsId,
             variant_id: variantIdValue === "null" ? null : variantIdValue,
             quantity: qty,
           };
         });
 
-      console.log("list_itemに送信する直前のデータ:", itemsToInsert);
-
       if (itemsToInsert.length > 0) {
         const { error: itemError } = await authedSupabase
           .from("list_item")
           .insert(itemsToInsert);
 
-        if (itemError) {
-          console.error("list_itemへのインサートに失敗しました。");
-          console.error("エラーコード(code):", itemError.code);
-          console.error("メッセージ(message):", itemError.message);
-          console.error("エラー詳細(details):", itemError.details);
-          console.error("ヒント(hint):", itemError.hint);
-          alert(`保存失敗: ${itemError.message} (詳細はコンソールを確認してください)`);
-          return;
-        }
+        if (itemError) throw itemError;
       }
 
-      console.log("list_itemへのインサート成功:", itemsToInsert);
       window.localStorage.removeItem(SELECTED_QUANTITIES_STORAGE_KEY);
-      alert("お買い物リストを保存しました！");
+      alert(
+        initialListId
+          ? "買い物リストを更新しました。"
+          : "買い物リストを保存しました。"
+      );
       router.push("/shopping-list");
+    } catch (error) {
+      console.error("save shopping list error:", error);
+      alert(
+        `保存に失敗しました: ${
+          error instanceof Error ? error.message : "不明なエラーが発生しました"
+        }`
+      );
     } finally {
       setIsSaving(false);
     }
@@ -362,7 +470,10 @@ export function GoodsCalculatorClient({ goods, event }: Props) {
     } catch (error) {
       console.error("auth dialog error:", error);
       toast({
-        title: authMode === "signin" ? "ログインに失敗しました" : "登録に失敗しました",
+        title:
+          authMode === "signin"
+            ? "ログインに失敗しました"
+            : "登録に失敗しました",
         description:
           error instanceof Error ? error.message : "認証処理に失敗しました",
         variant: "destructive",
@@ -382,27 +493,29 @@ export function GoodsCalculatorClient({ goods, event }: Props) {
   return (
     <div className="space-y-6 pb-6">
       <header className="space-y-4">
-        <Button
-          variant="outline"
-          onClick={() => router.push("/")}
-          className="w-full justify-start sm:w-auto"
-        >
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          ホームに戻る
-        </Button>
-        <Button
-          asChild
-          variant="outline"
-          className="w-full justify-start sm:w-auto"
-        >
-          <Link href="/shopping-list">
-            <ListChecks className="mr-2 h-4 w-4" />
-            買い物リストへ
-          </Link>
-        </Button>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Button
+            variant="outline"
+            onClick={() => router.push("/")}
+            className="w-full justify-start sm:w-auto"
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            ホームに戻る
+          </Button>
+          <Button
+            asChild
+            variant="outline"
+            className="w-full justify-start sm:w-auto"
+          >
+            <Link href="/shopping-list">
+              <ListChecks className="mr-2 h-4 w-4" />
+              買い物リストへ
+            </Link>
+          </Button>
+        </div>
         <div className="space-y-2">
           <h1 className="text-2xl font-semibold text-slate-900">
-            イベントグッズ計算
+            {initialListId ? "買い物リストを編集" : "イベントグッズ計算"}
           </h1>
           <div className="space-y-1 text-sm text-slate-600">
             <div>
@@ -412,10 +525,18 @@ export function GoodsCalculatorClient({ goods, event }: Props) {
               {new Date(event.event_start_date).toLocaleDateString("ja-JP")} -{" "}
               {new Date(event.event_end_date).toLocaleDateString("ja-JP")}
             </div>
-            {user ? <div>ようこそ、{String(userName)}さん！</div> : null}
+            {user ? <div>ようこそ、{String(userName)}さん</div> : null}
           </div>
         </div>
       </header>
+
+      {isLoadingExistingList ? (
+        <Card>
+          <CardContent className="p-4 text-sm text-slate-600">
+            編集データを読み込み中...
+          </CardContent>
+        </Card>
+      ) : null}
 
       <div id="shopping-list-capture-area" className="space-y-4">
         {goods.map((good) => (
@@ -455,7 +576,10 @@ export function GoodsCalculatorClient({ goods, event }: Props) {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => bump(good.goods_id, variant.variant_id, -1)}
+                          onClick={() =>
+                            bump(good.goods_id, variant.variant_id, -1)
+                          }
+                          disabled={isLoadingExistingList}
                         >
                           -
                         </Button>
@@ -464,7 +588,10 @@ export function GoodsCalculatorClient({ goods, event }: Props) {
                         </div>
                         <Button
                           size="sm"
-                          onClick={() => bump(good.goods_id, variant.variant_id, 1)}
+                          onClick={() =>
+                            bump(good.goods_id, variant.variant_id, 1)
+                          }
+                          disabled={isLoadingExistingList}
                         >
                           +
                         </Button>
@@ -480,13 +607,18 @@ export function GoodsCalculatorClient({ goods, event }: Props) {
                       size="sm"
                       variant="outline"
                       onClick={() => bump(good.goods_id, null, -1)}
+                      disabled={isLoadingExistingList}
                     >
                       -
                     </Button>
                     <div className="w-8 text-center text-sm font-medium">
                       {getQuantity(good.goods_id, null)}
                     </div>
-                    <Button size="sm" onClick={() => bump(good.goods_id, null, 1)}>
+                    <Button
+                      size="sm"
+                      onClick={() => bump(good.goods_id, null, 1)}
+                      disabled={isLoadingExistingList}
+                    >
                       +
                     </Button>
                   </div>
@@ -500,7 +632,9 @@ export function GoodsCalculatorClient({ goods, event }: Props) {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <div className="text-xs font-medium text-slate-500">合計点数</div>
+                <div className="text-xs font-medium text-slate-500">
+                  合計点数
+                </div>
                 <div className="mt-1 flex items-baseline gap-1">
                   <span className="text-2xl font-bold text-slate-950">
                     {totals.totalItems}
@@ -509,7 +643,9 @@ export function GoodsCalculatorClient({ goods, event }: Props) {
                 </div>
               </div>
               <div>
-                <div className="text-xs font-medium text-slate-500">合計金額</div>
+                <div className="text-xs font-medium text-slate-500">
+                  合計金額
+                </div>
                 <div className="mt-1 text-2xl font-bold leading-none text-slate-950">
                   {formatYen(totals.totalAmount)}
                 </div>
@@ -526,9 +662,15 @@ export function GoodsCalculatorClient({ goods, event }: Props) {
               <Button
                 className="h-11 w-full text-base font-semibold sm:w-auto"
                 onClick={handleSaveCart}
-                disabled={isSaving}
+                disabled={isSaving || isLoadingExistingList}
               >
-                {isSaving ? "保存中..." : "保存する"}
+                {isSaving
+                  ? initialListId
+                    ? "更新中..."
+                    : "保存中..."
+                  : initialListId
+                    ? "更新する"
+                    : "保存する"}
               </Button>
             </div>
           </div>

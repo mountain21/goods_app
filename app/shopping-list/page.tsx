@@ -579,7 +579,7 @@ export default function ShoppingListPage() {
               買い物リスト
             </h1>
             <p className="mt-1 text-sm text-slate-600">
-              保存済みリストの概要を確認し、必要なリストだけ詳細を開けます。
+              保存済み買い物リストの概要を確認し、必要なリストだけ詳細を開けます。
             </p>
           </div>
         </header>
@@ -607,10 +607,10 @@ export default function ShoppingListPage() {
                 </div>
                 <div>
                   <div className="font-semibold text-slate-950">
-                    買い物リスト画面からログインまたは登録してください
+                    買い物リスト機能を利用するには、ログインまたは登録してください。
                   </div>
                   <p className="mt-1 text-sm text-slate-600">
-                    この画面は認証のゲートウェイです。ログイン後に保存済みリストを確認できます。
+                    ログイン後に保存済みリストを確認できます。
                   </p>
                 </div>
               </div>
@@ -643,14 +643,14 @@ export default function ShoppingListPage() {
                   <Input
                     value={authUserName}
                     onChange={(event) => setAuthUserName(event.target.value)}
-                    placeholder="ユーザー名"
+                    placeholder="ユーザー名（半角英数字15文字以内）"
                     autoComplete="username"
                   />
                   <Input
                     type="password"
                     value={authPassword}
                     onChange={(event) => setAuthPassword(event.target.value)}
-                    placeholder="パスワード"
+                    placeholder="パスワード（半角英数字）"
                     autoComplete={
                       authMode === "signin" ? "current-password" : "new-password"
                     }

@@ -2,11 +2,11 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import React, { useEffect, useMemo, useState } from "react";
-import type { User } from "@supabase/supabase-js";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import type { Session, User } from "@supabase/supabase-js";
 import { createBrowserClient } from "@supabase/ssr";
 import Link from "next/link";
-import { ArrowLeft, Download, ListChecks } from "lucide-react";
+import { ArrowLeft, Download, ListChecks, LogIn, UserPlus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/client";
 import { useToast } from "@/hooks/use-toast";
@@ -16,6 +16,7 @@ import {
 } from "@/components/ExportListImage";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -77,11 +78,41 @@ type ExistingListItemRow = {
   quantity: number | null;
 };
 
+type SupabaseLikeError = {
+  message?: string;
+  details?: string;
+  hint?: string;
+};
+
 type Props = {
   goods: Good[];
   event: Event;
   initialListId?: string | null;
 };
+
+function createDummyEmail(userName: string) {
+  return `${userName.trim()}@mountainorg.exampledummy.com`;
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object") {
+    const supabaseError = error as SupabaseLikeError;
+    return (
+      supabaseError.message ||
+      supabaseError.details ||
+      supabaseError.hint ||
+      "処理に失敗しました"
+    );
+  }
+  return String(error);
+}
+
+function logError(label: string, error: unknown) {
+  console.error(label);
+  console.error("エラー詳細:", error);
+  console.dir(error);
+}
 
 function formatYen(value: number) {
   return `¥${value.toLocaleString("ja-JP")}`;
@@ -119,6 +150,13 @@ export function GoodsCalculatorClient({
   const [user, setUser] = useState<User | null>(null);
   const [loginPromptOpen, setLoginPromptOpen] = useState(false);
   const [loginPromptMessage, setLoginPromptMessage] = useState<string | null>(null);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
+  const [authUserName, setAuthUserName] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authMessage, setAuthMessage] = useState<string | null>(null);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [autoSavePending, setAutoSavePending] = useState(false);
 
   const goodsById = useMemo(
     () => new Map(goods.map((good) => [good.goods_id, good])),
@@ -343,6 +381,70 @@ export function GoodsCalculatorClient({
     return () => subscription.unsubscribe();
   }, [supabase]);
 
+  const handleAuth = async (mode: "signin" | "signup") => {
+    setAuthMessage(null);
+    const trimmedUserName = authUserName.trim();
+
+    if (!trimmedUserName) {
+      setAuthMessage("ユーザー名を入力してください。");
+      return;
+    }
+
+    if (!authPassword) {
+      setAuthMessage("パスワードを入力してください。");
+      return;
+    }
+
+    if (mode === "signup" && authPassword.length < 6) {
+      setAuthMessage("パスワードは6文字以上で入力してください。");
+      return;
+    }
+
+    setAuthBusy(true);
+
+    try {
+      const dummyEmail = createDummyEmail(trimmedUserName);
+      const { data, error } =
+        mode === "signin"
+          ? await supabase.auth.signInWithPassword({
+              email: dummyEmail,
+              password: authPassword,
+            })
+          : await supabase.auth.signUp({
+              email: dummyEmail,
+              password: authPassword,
+              options: {
+                data: {
+                  username: trimmedUserName,
+                },
+              },
+            });
+
+      if (error) {
+        const normalized = error.message ?? String(error);
+        if (
+          mode === "signup" &&
+          /duplicate|already|既に|登録済み/.test(normalized)
+        ) {
+          setAuthMessage("そのユーザー名はすでに使われています。");
+          return;
+        }
+        setAuthMessage(getErrorMessage(error));
+        return;
+      }
+
+      // 認証成功したら、自動保存を予約
+      setAutoSavePending(true);
+      setAuthUserName("");
+      setAuthPassword("");
+    } catch (error) {
+      logError("auth error", error);
+      setAuthMessage(getErrorMessage(error));
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
   const handleSaveCart = async () => {
     setIsSaving(true);
 
@@ -354,10 +456,7 @@ export function GoodsCalculatorClient({
 
       if (!session?.user || !session.access_token || sessionError) {
         persistSelectedQuantities();
-        setLoginPromptMessage(
-          "保存するにはログインが必要です。買い物リスト画面でログインまたは登録を行ってください。"
-        );
-        setLoginPromptOpen(true);
+        setShowLoginModal(true);
         return;
       }
 
@@ -462,6 +561,18 @@ export function GoodsCalculatorClient({
     }
   };
 
+  useEffect(() => {
+    if (!autoSavePending) return;
+
+    // ログイン成功後に自動保存処理を実行
+    setShowLoginModal(false);
+    setAutoSavePending(false);
+    
+    // 次のイベントループで実行して、モーダルクローズアニメーション後に処理
+    window.setTimeout(() => {
+      void handleSaveCart();
+    }, 0);
+  }, [autoSavePending]);
 
   const handleImageSaveClick = async () => {
     if (isSavingImage) return;
@@ -714,6 +825,78 @@ export function GoodsCalculatorClient({
               閉じる
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showLoginModal} onOpenChange={setShowLoginModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>ログイン / 新規登録</DialogTitle>
+            <DialogDescription>
+              グッズリストを保存するにはログインまたは登録が必要です。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 rounded-lg bg-slate-100 p-1">
+              <Button
+                type="button"
+                variant={authMode === "signin" ? "default" : "ghost"}
+                onClick={() => {
+                  setAuthMode("signin");
+                  setAuthMessage(null);
+                }}
+              >
+                <LogIn className="mr-2 h-4 w-4" />
+                ログイン
+              </Button>
+              <Button
+                type="button"
+                variant={authMode === "signup" ? "default" : "ghost"}
+                onClick={() => {
+                  setAuthMode("signup");
+                  setAuthMessage(null);
+                }}
+              >
+                <UserPlus className="mr-2 h-4 w-4" />
+                登録
+              </Button>
+            </div>
+            <div className="space-y-3">
+              <Input
+                value={authUserName}
+                onChange={(event) => setAuthUserName(event.target.value)}
+                placeholder="ユーザー名"
+                autoComplete="username"
+              />
+              <Input
+                type="password"
+                value={authPassword}
+                onChange={(event) => setAuthPassword(event.target.value)}
+                placeholder="パスワード"
+                autoComplete={
+                  authMode === "signin" ? "current-password" : "new-password"
+                }
+              />
+              {authMessage ? (
+                <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                  {authMessage}
+                </div>
+              ) : null}
+              <Button
+                onClick={() => void handleAuth(authMode)}
+                disabled={authBusy}
+                className="w-full"
+              >
+                {authBusy
+                  ? authMode === "signin"
+                    ? "ログイン中..."
+                    : "登録中..."
+                  : authMode === "signin"
+                    ? "ログイン"
+                    : "登録"}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

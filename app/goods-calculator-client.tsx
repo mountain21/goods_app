@@ -6,7 +6,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createBrowserClient } from "@supabase/ssr";
 import Link from "next/link";
-import { ArrowLeft, Download, ListChecks, LogIn, UserPlus } from "lucide-react";
+import { ArrowLeft, Download, ListChecks } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/client";
 import { useToast } from "@/hooks/use-toast";
@@ -24,10 +24,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { downloadElementAsImage } from "@/utils/imageExport";
 
-const DUMMY_AUTH_DOMAIN = "mountainorg.exampledummy.com";
 const SELECTED_QUANTITIES_STORAGE_KEY = "goods-calculator:selectedQuantities";
 
 type GoodsVariant = {
@@ -85,10 +83,6 @@ type Props = {
   initialListId?: string | null;
 };
 
-function createDummyEmail(userName: string) {
-  return `${userName.trim()}@${DUMMY_AUTH_DOMAIN}`;
-}
-
 function formatYen(value: number) {
   return `¥${value.toLocaleString("ja-JP")}`;
 }
@@ -123,11 +117,8 @@ export function GoodsCalculatorClient({
     Boolean(initialListId)
   );
   const [user, setUser] = useState<User | null>(null);
-  const [authDialogOpen, setAuthDialogOpen] = useState(false);
-  const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
-  const [authUserName, setAuthUserName] = useState("");
-  const [authPassword, setAuthPassword] = useState("");
-  const [authBusy, setAuthBusy] = useState(false);
+  const [loginPromptOpen, setLoginPromptOpen] = useState(false);
+  const [loginPromptMessage, setLoginPromptMessage] = useState<string | null>(null);
 
   const goodsById = useMemo(
     () => new Map(goods.map((good) => [good.goods_id, good])),
@@ -222,10 +213,7 @@ export function GoodsCalculatorClient({
   };
 
   useEffect(() => {
-    void supabase.auth.getSession().then(({ data, error }) => {
-      if (error) {
-        console.error("initial auth session error:", error);
-      }
+    void supabase.auth.getSession().then(({ data }) => {
       setUser(data.session?.user ?? null);
     });
 
@@ -255,8 +243,7 @@ export function GoodsCalculatorClient({
       }
 
       window.localStorage.removeItem(SELECTED_QUANTITIES_STORAGE_KEY);
-    } catch (error) {
-      console.error("restore selected quantities error:", error);
+    } catch (_error) {
       window.localStorage.removeItem(SELECTED_QUANTITIES_STORAGE_KEY);
     }
   }, [event.event_id, initialListId, supabase, toast]);
@@ -322,7 +309,6 @@ export function GoodsCalculatorClient({
           toast({ title: "買い物リストを編集用に読み込みました" });
         }
       } catch (error) {
-        console.error("load existing shopping list error:", error);
         if (!cancelled) {
           toast({
             title: "買い物リストの読み込みに失敗しました",
@@ -367,10 +353,11 @@ export function GoodsCalculatorClient({
       } = await supabase.auth.getSession();
 
       if (!session?.user || !session.access_token || sessionError) {
-        console.error("auth session error:", sessionError);
         persistSelectedQuantities();
-        setAuthDialogOpen(true);
-        alert("ログイン後にもう一度保存してください。");
+        setLoginPromptMessage(
+          "保存するにはログインが必要です。買い物リスト画面でログインまたは登録を行ってください。"
+        );
+        setLoginPromptOpen(true);
         return;
       }
 
@@ -413,7 +400,9 @@ export function GoodsCalculatorClient({
           .delete()
           .eq("list_id", savedListId);
 
-        if (deleteItemsError) throw deleteItemsError;
+        if (deleteItemsError) {
+          throw deleteItemsError;
+        }
       } else {
         const { data: listData, error: listError } = await authedSupabase
           .from("shopping_list")
@@ -453,71 +442,26 @@ export function GoodsCalculatorClient({
       }
 
       window.localStorage.removeItem(SELECTED_QUANTITIES_STORAGE_KEY);
-      alert(
-        initialListId
+      toast({
+        title: initialListId
           ? "買い物リストを更新しました。"
-          : "買い物リストを保存しました。"
-      );
+          : "買い物リストを保存しました。",
+      });
       router.push("/shopping-list");
     } catch (error) {
-      console.error("save shopping list error:", error);
-      alert(
-        `保存に失敗しました: ${
-          error instanceof Error ? error.message : "不明なエラーが発生しました"
-        }`
-      );
+      toast({
+        title: "保存に失敗しました",
+        description:
+          error instanceof Error
+            ? error.message
+            : "不明なエラーが発生しました",
+        variant: "destructive",
+      });
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleDialogAuth = async () => {
-    setAuthBusy(true);
-
-    try {
-      const trimmedUserName = authUserName.trim();
-      if (!trimmedUserName || !authPassword) {
-        throw new Error("ユーザー名とパスワードを入力してください");
-      }
-
-      persistSelectedQuantities();
-      const dummyEmail = createDummyEmail(trimmedUserName);
-
-      const { data, error } =
-        authMode === "signin"
-          ? await supabase.auth.signInWithPassword({
-              email: dummyEmail,
-              password: authPassword,
-            })
-          : await supabase.auth.signUp({
-              email: dummyEmail,
-              password: authPassword,
-              options: {
-                data: {
-                  username: trimmedUserName,
-                },
-              },
-            });
-
-      if (error) throw error;
-      setUser(data.session?.user ?? data.user ?? null);
-      setAuthDialogOpen(false);
-      toast({ title: "ログインしました。もう一度保存してください" });
-    } catch (error) {
-      console.error("auth dialog error:", error);
-      toast({
-        title:
-          authMode === "signin"
-            ? "ログインに失敗しました"
-            : "登録に失敗しました",
-        description:
-          error instanceof Error ? error.message : "認証処理に失敗しました",
-        variant: "destructive",
-      });
-    } finally {
-      setAuthBusy(false);
-    }
-  };
 
   const handleImageSaveClick = async () => {
     if (isSavingImage) return;
@@ -530,7 +474,6 @@ export function GoodsCalculatorClient({
         <ExportListImage data={exportImageData} />
       );
     } catch (error) {
-      console.error("save shopping list image error:", error);
       toast({
         title: "画像保存に失敗しました",
         description:
@@ -720,7 +663,6 @@ export function GoodsCalculatorClient({
                   event.stopPropagation();
                 }}
                 onClick={(event) => {
-                  console.log("Save button triggered");
                   event.preventDefault();
                   event.stopPropagation();
                   void handleImageSaveClick();
@@ -749,65 +691,27 @@ export function GoodsCalculatorClient({
         </div>
       </div>
 
-      <Dialog open={authDialogOpen} onOpenChange={setAuthDialogOpen}>
+      <Dialog open={loginPromptOpen} onOpenChange={setLoginPromptOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>ログインが必要です</DialogTitle>
             <DialogDescription>
-              選択内容を保持したまま保存するには、ログインまたはアカウント登録を行ってください。
+              {loginPromptMessage ??
+                "買い物リストを保存するには、ログインまたは登録が必要です。"}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 rounded-lg bg-slate-100 p-1">
-              <Button
-                type="button"
-                variant={authMode === "signin" ? "default" : "ghost"}
-                onClick={() => setAuthMode("signin")}
-              >
-                <LogIn className="mr-2 h-4 w-4" />
-                ログイン
-              </Button>
-              <Button
-                type="button"
-                variant={authMode === "signup" ? "default" : "ghost"}
-                onClick={() => setAuthMode("signup")}
-              >
-                <UserPlus className="mr-2 h-4 w-4" />
-                登録
-              </Button>
-            </div>
-            <Input
-              value={authUserName}
-              onChange={(event) => setAuthUserName(event.target.value)}
-              placeholder="ユーザー名"
-              autoComplete="username"
-            />
-            <Input
-              type="password"
-              value={authPassword}
-              onChange={(event) => setAuthPassword(event.target.value)}
-              placeholder="パスワード"
-              autoComplete={
-                authMode === "signin" ? "current-password" : "new-password"
-              }
-            />
-          </div>
           <DialogFooter>
             <Button
               variant="outline"
               onClick={() => {
                 persistSelectedQuantities();
-                router.push("/");
+                router.push("/shopping-list");
               }}
             >
-              ホームへ戻る
+              買い物リストへ移動
             </Button>
-            <Button onClick={handleDialogAuth} disabled={authBusy}>
-              {authBusy
-                ? "処理中..."
-                : authMode === "signin"
-                  ? "ログイン"
-                  : "アカウント登録"}
+            <Button onClick={() => setLoginPromptOpen(false)}>
+              閉じる
             </Button>
           </DialogFooter>
         </DialogContent>

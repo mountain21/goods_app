@@ -7,18 +7,13 @@ import type { Session } from "@supabase/supabase-js";
 import {
   CalendarDays,
   ListChecks,
-  LogIn,
   LogOut,
   MapPin,
-  UserPlus,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { createClient } from "@/lib/client";
-
-const DUMMY_AUTH_DOMAIN = "mountainorg.exampledummy.com";
 
 type EventRow = {
   event_id: string;
@@ -35,10 +30,6 @@ type SupabaseLikeError = {
   details?: string;
   hint?: string;
 };
-
-function createDummyEmail(userName: string) {
-  return `${userName.trim()}@${DUMMY_AUTH_DOMAIN}`;
-}
 
 function getUsername(session: Session | null) {
   const username = session?.user.user_metadata?.username;
@@ -86,12 +77,10 @@ export default function HomePage() {
 
   const [session, setSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [authBusy, setAuthBusy] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [events, setEvents] = useState<EventRow[]>([]);
   const [eventsLoading, setEventsLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
-  const [userName, setUserName] = useState("");
-  const [password, setPassword] = useState("");
 
   const loadEvents = useCallback(async () => {
     setEventsLoading(true);
@@ -119,7 +108,6 @@ export default function HomePage() {
     const timeoutId = window.setTimeout(() => {
       void supabase.auth.getSession().then(({ data, error }) => {
         if (error) {
-          logError("getSession error", error);
           setMessage(`ログイン状態の確認に失敗しました: ${getErrorMessage(error)}`);
         }
 
@@ -143,61 +131,21 @@ export default function HomePage() {
     };
   }, [loadEvents, supabase]);
 
-  const handleAuth = async (mode: "signin" | "signup") => {
-    setAuthBusy(true);
-    setMessage(null);
-
-    try {
-      const trimmedUserName = userName.trim();
-      if (!trimmedUserName || !password) {
-        throw new Error("ユーザー名とパスワードを入力してください");
-      }
-
-      const dummyEmail = createDummyEmail(trimmedUserName);
-      const { error } =
-        mode === "signin"
-          ? await supabase.auth.signInWithPassword({
-              email: dummyEmail,
-              password,
-            })
-          : await supabase.auth.signUp({
-              email: dummyEmail,
-              password,
-              options: {
-                data: {
-                  username: trimmedUserName,
-                },
-              },
-            });
-
-      if (error) throw error;
-      setMessage(mode === "signin" ? "ログインしました" : "登録しました");
-    } catch (error) {
-      logError(`${mode} error`, error);
-      setMessage(getErrorMessage(error));
-    } finally {
-      setAuthBusy(false);
-    }
-  };
-
-  const handleSignOut = async () => {
-    setAuthBusy(true);
-    setMessage(null);
-
-    try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
-      setMessage("ログアウトしました");
-    } catch (error) {
-      logError("signOut error", error);
-      setMessage(getErrorMessage(error));
-    } finally {
-      setAuthBusy(false);
-    }
-  };
 
   const openEvent = (eventId: string) => {
     router.push(`/goods-calculator?event_id=${encodeURIComponent(eventId)}`);
+  };
+
+  const handleLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      await supabase.auth.signOut();
+      window.location.href = '/';
+    } catch (error) {
+      logError('logout error', error);
+      setMessage(`ログアウトに失敗しました: ${getErrorMessage(error)}`);
+      setIsLoggingOut(false);
+    }
   };
 
   return (
@@ -212,11 +160,15 @@ export default function HomePage() {
           </p>
         </header>
 
-        <Card className="border-slate-200 bg-white shadow-sm">
-          <CardContent className="p-4">
-            {authLoading ? (
+        {authLoading ? (
+          <Card className="border-slate-200 bg-white shadow-sm">
+            <CardContent className="p-4">
               <div className="text-sm text-slate-600">ログイン状態を確認中...</div>
-            ) : session?.user ? (
+            </CardContent>
+          </Card>
+        ) : session?.user ? (
+          <Card className="border-slate-200 bg-white shadow-sm">
+            <CardContent className="p-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="text-sm font-medium text-slate-950">
@@ -236,69 +188,25 @@ export default function HomePage() {
                     買い物リスト
                   </Button>
                   <Button
-                    variant="outline"
-                    onClick={handleSignOut}
-                    disabled={authBusy}
-                    className="w-full sm:w-auto"
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleLogout}
+                    disabled={isLoggingOut}
+                    className="text-slate-600 hover:text-slate-900"
                   >
-                    <LogOut />
-                    ログアウト
+                    <LogOut className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
-            ) : (
-              <div className="space-y-4">
-                <div>
-                  <div className="text-base font-semibold text-slate-950">
-                    ユーザー名でログインしてマイリストを保存しよう！
-                  </div>
-                  <div className="mt-1 text-sm text-slate-600">
-                    メールアドレスは不要です。ユーザー名とパスワードで利用できます。
-                  </div>
-                </div>
 
-                <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto_auto] sm:items-center">
-                  <Input
-                    value={userName}
-                    onChange={(event) => setUserName(event.target.value)}
-                    placeholder="ユーザー名"
-                    autoComplete="username"
-                  />
-                  <Input
-                    type="password"
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    placeholder="パスワード"
-                    autoComplete="current-password"
-                  />
-                  <Button
-                    onClick={() => void handleAuth("signin")}
-                    disabled={authBusy}
-                    className="w-full sm:w-auto"
-                  >
-                    <LogIn />
-                    ログイン
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => void handleAuth("signup")}
-                    disabled={authBusy}
-                    className="w-full sm:w-auto"
-                  >
-                    <UserPlus />
-                    アカウント登録
-                  </Button>
+              {message ? (
+                <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                  {message}
                 </div>
-              </div>
-            )}
-
-            {message ? (
-              <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                {message}
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
+              ) : null}
+            </CardContent>
+          </Card>
+        ) : null}
 
         <section className="space-y-3">
           <div>

@@ -19,6 +19,8 @@ import {
   Pencil,
   RefreshCw,
   Trash2,
+  UserPlus,
+  LogOut
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import pencilIcon from "./pencil.png";
@@ -88,6 +90,10 @@ const dateFormatter = new Intl.DateTimeFormat("ja-JP", {
   day: "2-digit",
 });
 
+function createDummyEmail(userName: string) {
+  return `${userName.trim()}@mountainorg.exampledummy.com`;
+}
+
 function getErrorMessage(error: unknown) {
   if (error instanceof Error) return error.message;
   if (error && typeof error === "object") {
@@ -131,6 +137,12 @@ export default function ShoppingListPage() {
 
   const [session, setSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
+  const [authUserName, setAuthUserName] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authMessage, setAuthMessage] = useState<string | null>(null);
   const [savedLists, setSavedLists] = useState<SavedList[]>([]);
   const [openListIds, setOpenListIds] = useState<Record<string, boolean>>({});
   const [editingListId, setEditingListId] = useState<string | null>(null);
@@ -139,6 +151,83 @@ export default function ShoppingListPage() {
   const [loading, setLoading] = useState(false);
   const [deletingListId, setDeletingListId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+
+  const handleAuth = async (mode: "signin" | "signup") => {
+    setAuthMessage(null);
+    const trimmedUserName = authUserName.trim();
+
+    if (!trimmedUserName) {
+      setAuthMessage("ユーザー名を入力してください。");
+      return;
+    }
+
+    if (!authPassword) {
+      setAuthMessage("パスワードを入力してください。");
+      return;
+    }
+
+    if (mode === "signup" && authPassword.length < 6) {
+      setAuthMessage("パスワードは6文字以上で入力してください。");
+      return;
+    }
+
+    setAuthBusy(true);
+    setMessage(null);
+
+    try {
+      const dummyEmail = createDummyEmail(trimmedUserName);
+      const { data, error } =
+        mode === "signin"
+          ? await supabase.auth.signInWithPassword({
+              email: dummyEmail,
+              password: authPassword,
+            })
+          : await supabase.auth.signUp({
+              email: dummyEmail,
+              password: authPassword,
+              options: {
+                data: {
+                  username: trimmedUserName,
+                },
+              },
+            });
+
+      if (error) {
+        const normalized = error.message ?? String(error);
+        if (
+          mode === "signup" &&
+          /duplicate|already|既に|登録済み/.test(normalized)
+        ) {
+          setAuthMessage("そのユーザー名はすでに使われています。");
+          return;
+        }
+        setAuthMessage(getErrorMessage(error));
+        return;
+      }
+
+      setMessage(mode === "signin" ? "ログインしました。" : "登録しました。" );
+      setAuthMessage(null);
+      setAuthUserName("");
+      setAuthPassword("");
+    } catch (error) {
+      logError("auth error", error);
+      setAuthMessage(getErrorMessage(error));
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      await supabase.auth.signOut();
+      window.location.href = '/';
+    } catch (error) {
+      logError('logout error', error);
+      setMessage(`ログアウトに失敗しました: ${getErrorMessage(error)}`);
+      setIsLoggingOut(false);
+    }
+  };
 
   const loadSavedLists = useCallback(
     async (userId: string) => {
@@ -518,22 +607,79 @@ export default function ShoppingListPage() {
                 </div>
                 <div>
                   <div className="font-semibold text-slate-950">
-                    保存したリストを見るにはログインしてください
+                    買い物リスト画面からログインまたは登録してください
                   </div>
                   <p className="mt-1 text-sm text-slate-600">
-                    ホーム画面からログインすると、保存済みの買い物リストを確認できます。
+                    この画面は認証のゲートウェイです。ログイン後に保存済みリストを確認できます。
                   </p>
                 </div>
               </div>
-              <Button onClick={() => router.push("/")} className="w-full sm:w-auto">
-                <LogIn />
-                ホームでログインする
-              </Button>
+              <div className="grid gap-3">
+                <div className="grid grid-cols-2 rounded-lg bg-slate-100 p-1">
+                  <Button
+                    type="button"
+                    variant={authMode === "signin" ? "default" : "ghost"}
+                    onClick={() => {
+                      setAuthMode("signin");
+                      setAuthMessage(null);
+                    }}
+                  >
+                    <LogIn className="mr-2 h-4 w-4" />
+                    ログイン
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={authMode === "signup" ? "default" : "ghost"}
+                    onClick={() => {
+                      setAuthMode("signup");
+                      setAuthMessage(null);
+                    }}
+                  >
+                    <UserPlus className="mr-2 h-4 w-4" />
+                    登録
+                  </Button>
+                </div>
+                <div className="grid gap-3">
+                  <Input
+                    value={authUserName}
+                    onChange={(event) => setAuthUserName(event.target.value)}
+                    placeholder="ユーザー名"
+                    autoComplete="username"
+                  />
+                  <Input
+                    type="password"
+                    value={authPassword}
+                    onChange={(event) => setAuthPassword(event.target.value)}
+                    placeholder="パスワード"
+                    autoComplete={
+                      authMode === "signin" ? "current-password" : "new-password"
+                    }
+                  />
+                  {authMessage ? (
+                    <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                      {authMessage}
+                    </div>
+                  ) : null}
+                  <Button
+                    onClick={() => void handleAuth(authMode)}
+                    disabled={authBusy}
+                    className="w-full sm:w-auto"
+                  >
+                    {authBusy
+                      ? authMode === "signin"
+                        ? "ログイン中..."
+                        : "登録中..."
+                      : authMode === "signin"
+                        ? "ログイン"
+                        : "登録"}
+                  </Button>
+                </div>
+              </div>
             </CardContent>
           </Card>
         ) : (
-          <section className="space-y-3">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <section className="space-y-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-slate-950">
                   保存済みリスト
@@ -542,14 +688,18 @@ export default function ShoppingListPage() {
                   詳細を開くと、グッズごとの点数と単価を確認できます。
                 </p>
               </div>
-              <Button
-                variant="outline"
-                onClick={() => void loadSavedLists(session.user.id)}
-                disabled={loading}
-              >
-                <RefreshCw className="h-4 w-4" />
-                更新
-              </Button>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleLogout}
+                  disabled={isLoggingOut}
+                  className="text-slate-600 hover:text-slate-900"
+                >
+                  <LogOut className="h-4 w-4" />
+                  <span>ログアウト</span>
+                </Button>
+              </div>
             </div>
 
             {loading ? (
@@ -702,7 +852,7 @@ export default function ShoppingListPage() {
                                 onClick={() => handleEditList(list)}
                                 className="w-full sm:w-auto"
                               >
-                                <Pencil className="h-4 w-4" />
+                                <img src={pencilIcon.src} alt="編集" className="h-4 w-4" />
                                 編集
                               </Button>
                               <Button

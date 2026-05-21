@@ -6,10 +6,14 @@ import React, { useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createBrowserClient } from "@supabase/ssr";
 import Link from "next/link";
-import { ArrowLeft, ListChecks, LogIn, UserPlus } from "lucide-react";
+import { ArrowLeft, Download, ListChecks, LogIn, UserPlus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/client";
 import { useToast } from "@/hooks/use-toast";
+import {
+  ExportListImage,
+  type ExportListImageData,
+} from "@/components/ExportListImage";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -21,6 +25,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { downloadElementAsImage } from "@/utils/imageExport";
 
 const DUMMY_AUTH_DOMAIN = "mountainorg.exampledummy.com";
 const SELECTED_QUANTITIES_STORAGE_KEY = "goods-calculator:selectedQuantities";
@@ -113,6 +118,7 @@ export function GoodsCalculatorClient({
 
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingImage, setIsSavingImage] = useState(false);
   const [isLoadingExistingList, setIsLoadingExistingList] = useState(
     Boolean(initialListId)
   );
@@ -174,6 +180,36 @@ export function GoodsCalculatorClient({
 
     return { totalItems, totalAmount };
   }, [goodsById, quantities]);
+
+  const exportImageData = useMemo<ExportListImageData>(() => {
+    const items = Object.entries(quantities)
+      .filter(([, quantity]) => quantity > 0)
+      .map(([key, quantity]) => {
+        const [goodsId, variantIdValue] = key.split("::");
+        const good = goodsById.get(goodsId);
+        const variant =
+          variantIdValue === "null"
+            ? null
+            : good?.variants?.find(
+                (variantItem) => variantItem.variant_id === variantIdValue
+              );
+
+        return {
+          name: variant
+            ? `${good?.item_name ?? "商品"} / ${variant.variant_name}`
+            : good?.item_name ?? "商品",
+          quantity,
+          unitPrice: good?.price ?? 0,
+        };
+      });
+
+    return {
+      title: event.event_name || "買い物リスト",
+      totalItems: totals.totalItems,
+      totalAmount: totals.totalAmount,
+      items,
+    };
+  }, [event.event_name, goodsById, quantities, totals.totalAmount, totals.totalItems]);
 
   const persistSelectedQuantities = () => {
     window.localStorage.setItem(
@@ -483,8 +519,27 @@ export function GoodsCalculatorClient({
     }
   };
 
-  const handleImageSaveClick = () => {
-    toast({ title: "画像保存機能は準備中です" });
+  const handleImageSaveClick = async () => {
+    if (isSavingImage) return;
+
+    setIsSavingImage(true);
+
+    try {
+      await downloadElementAsImage(
+        exportImageData,
+        <ExportListImage data={exportImageData} />
+      );
+    } catch (error) {
+      console.error("save shopping list image error:", error);
+      toast({
+        title: "画像保存に失敗しました",
+        description:
+          error instanceof Error ? error.message : "画像の作成に失敗しました。",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingImage(false);
+    }
   };
 
   const userName =
@@ -545,6 +600,7 @@ export function GoodsCalculatorClient({
               <div className="flex items-start gap-3">
                 {good.image_url ? (
                   <img
+                    crossOrigin="anonymous"
                     src={good.image_url}
                     alt={good.item_name}
                     className="h-20 w-20 shrink-0 rounded-md border border-slate-200 bg-white object-cover"
@@ -576,6 +632,7 @@ export function GoodsCalculatorClient({
                         <Button
                           size="sm"
                           variant="outline"
+                          data-html2canvas-ignore="true"
                           onClick={() =>
                             bump(good.goods_id, variant.variant_id, -1)
                           }
@@ -588,6 +645,7 @@ export function GoodsCalculatorClient({
                         </div>
                         <Button
                           size="sm"
+                          data-html2canvas-ignore="true"
                           onClick={() =>
                             bump(good.goods_id, variant.variant_id, 1)
                           }
@@ -606,6 +664,7 @@ export function GoodsCalculatorClient({
                     <Button
                       size="sm"
                       variant="outline"
+                      data-html2canvas-ignore="true"
                       onClick={() => bump(good.goods_id, null, -1)}
                       disabled={isLoadingExistingList}
                     >
@@ -616,6 +675,7 @@ export function GoodsCalculatorClient({
                     </div>
                     <Button
                       size="sm"
+                      data-html2canvas-ignore="true"
                       onClick={() => bump(good.goods_id, null, 1)}
                       disabled={isLoadingExistingList}
                     >
@@ -654,12 +714,24 @@ export function GoodsCalculatorClient({
             <div className="flex flex-col gap-2 sm:flex-row">
               <Button
                 variant="outline"
+                data-html2canvas-ignore="true"
                 className="h-11 w-full text-base font-semibold sm:w-auto"
-                onClick={handleImageSaveClick}
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                }}
+                onClick={(event) => {
+                  console.log("Save button triggered");
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void handleImageSaveClick();
+                }}
+                disabled={isSavingImage}
               >
-                画像として保存
+                <Download className="h-4 w-4" />
+                {isSavingImage ? "画像保存中..." : "画像として保存"}
               </Button>
               <Button
+                data-html2canvas-ignore="true"
                 className="h-11 w-full text-base font-semibold sm:w-auto"
                 onClick={handleSaveCart}
                 disabled={isSaving || isLoadingExistingList}

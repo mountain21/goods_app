@@ -633,6 +633,7 @@ export default function ShoppingListPage() {
                                   </h3>
                                   <button
                                     type="button"
+                                    data-html2canvas-ignore="true"
                                     onClick={() => startEditingListName(list)}
                                     className="inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-transparent transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2"
                                     aria-label="買い物リスト名を編集"
@@ -671,10 +672,14 @@ export default function ShoppingListPage() {
                             </div>
                           </div>
 
-                          <div className="mt-4 flex flex-col gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div
+                            data-html2canvas-ignore="true"
+                            className="mt-4 flex flex-col gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between"
+                          >
                             <Button
                               type="button"
                               variant="ghost"
+                              data-html2canvas-ignore="true"
                               onClick={() =>
                                 toggleListOpen(list.shopping_list_id)
                               }
@@ -693,6 +698,7 @@ export default function ShoppingListPage() {
                               <Button
                                 type="button"
                                 variant="outline"
+                                data-html2canvas-ignore="true"
                                 onClick={() => handleEditList(list)}
                                 className="w-full sm:w-auto"
                               >
@@ -702,6 +708,7 @@ export default function ShoppingListPage() {
                               <Button
                                 type="button"
                                 variant="destructive"
+                                data-html2canvas-ignore="true"
                                 onClick={() => void handleDeleteList(list)}
                                 disabled={
                                   deletingListId === list.shopping_list_id

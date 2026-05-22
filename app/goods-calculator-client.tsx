@@ -582,340 +582,345 @@ export function GoodsCalculatorClient({
   }, [autoSavePending]);
 
   const handleImageSaveClick = async () => {
-    if (isSavingImage) return;
+  if (isSavingImage) return;
 
-    // 1. まずSafariの制約を突破するために、空のリンクをダミーで作成
-    const dummyLink = document.createElement('a');
-    document.body.appendChild(dummyLink);
+  setIsSavingImage(true);
 
-    setIsSavingImage(true);
+  try {
+    // 1. 画像生成（時間がかかる処理）
+    const { blob, fileName } = await renderElementAsImageBlob(
+      exportImageData,
+      <ExportListImage data={exportImageData} />
+    );
 
-    try {
-      // 2. 画像生成処理（ここはawaitしてOKです）
-      const { blob, fileName } = await renderElementAsImageBlob(
-        exportImageData,
-        <ExportListImage data={exportImageData} />
-      );
+    // 2. ここから先が重要：Safariに「ユーザー操作の続き」と認識させるための細工
+    // 一度非同期処理を抜けてから、同期的にダウンロードを実行する
+    setTimeout(() => {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      
+      // ボタンをクリックしたことにする
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      setIsSavingImage(false);
+    }, 0);
 
-      // 3. ダウンロード処理を実行（ここもawaitでOK）
-      await handleImageSave(blob, fileName);
-
-    } catch (error) {
-      // iPhoneの画面にエラー内容をアラートで強制表示させる
-      alert("エラー内容: " + (error instanceof Error ? error.message : JSON.stringify(error)));
-
-      toast({
-        title: "画像保存に失敗しました",
-        description: error instanceof Error ? error.message : "作成失敗",
-        variant: "destructive",
-      });
-    }
+  } catch (error) {
+    console.error("保存失敗:", error);
+    alert("保存に失敗しました。通信環境を確認してください。");
+    setIsSavingImage(false);
   }
+};
 
-    const userName =
-      user?.user_metadata?.username ?? user?.email ?? user?.id ?? undefined;
+  const userName =
+    user?.user_metadata?.username ?? user?.email ?? user?.id ?? undefined;
 
-    return (
-      <div className="space-y-6 pb-6">
-        <header className="space-y-4">
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Button
-              variant="outline"
-              onClick={() => router.push("/")}
-              className="w-full justify-start sm:w-auto"
-            >
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              ホームに戻る
-            </Button>
-            <Button
-              asChild
-              variant="outline"
-              className="w-full justify-start sm:w-auto"
-            >
-              <Link href="/shopping-list">
-                <ListChecks className="mr-2 h-4 w-4" />
-                買い物リストへ
-              </Link>
-            </Button>
-          </div>
-          <div className="space-y-2">
-            <h1 className="text-2xl font-semibold text-slate-900">
-              {initialListId ? "買い物リストを編集" : "イベントグッズ計算"}
-            </h1>
-            <div className="space-y-1 text-sm text-slate-600">
-              <div>
-                {event.artist_name} / {event.event_name}
-              </div>
-              <div>
-                {new Date(event.event_start_date).toLocaleDateString("ja-JP")} -{" "}
-                {new Date(event.event_end_date).toLocaleDateString("ja-JP")}
-              </div>
-              {user ? <div>ようこそ、{String(userName)}さん</div> : null}
+  return (
+    <div className="space-y-6 pb-6">
+      <header className="space-y-4">
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Button
+            variant="outline"
+            onClick={() => router.push("/")}
+            className="w-full justify-start sm:w-auto"
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            ホームに戻る
+          </Button>
+          <Button
+            asChild
+            variant="outline"
+            className="w-full justify-start sm:w-auto"
+          >
+            <Link href="/shopping-list">
+              <ListChecks className="mr-2 h-4 w-4" />
+              買い物リストへ
+            </Link>
+          </Button>
+        </div>
+        <div className="space-y-2">
+          <h1 className="text-2xl font-semibold text-slate-900">
+            {initialListId ? "買い物リストを編集" : "イベントグッズ計算"}
+          </h1>
+          <div className="space-y-1 text-sm text-slate-600">
+            <div>
+              {event.artist_name} / {event.event_name}
             </div>
+            <div>
+              {new Date(event.event_start_date).toLocaleDateString("ja-JP")} -{" "}
+              {new Date(event.event_end_date).toLocaleDateString("ja-JP")}
+            </div>
+            {user ? <div>ようこそ、{String(userName)}さん</div> : null}
           </div>
-        </header>
+        </div>
+      </header>
 
-        {isLoadingExistingList ? (
-          <Card>
-            <CardContent className="p-4 text-sm text-slate-600">
-              編集データを読み込み中...
+      {isLoadingExistingList ? (
+        <Card>
+          <CardContent className="p-4 text-sm text-slate-600">
+            編集データを読み込み中...
+          </CardContent>
+        </Card>
+      ) : null}
+
+      <div id="shopping-list-capture-area" className="space-y-4">
+        {goods.map((good) => (
+          <Card key={good.goods_id} className="p-3">
+            <CardHeader className="p-0">
+              <div className="flex items-start gap-3">
+                {good.image_url ? (
+                  <img
+                    crossOrigin="anonymous"
+                    src={good.image_url}
+                    alt={good.item_name}
+                    className="h-20 w-20 shrink-0 rounded-md border border-slate-200 bg-white object-cover"
+                    loading="lazy"
+                  />
+                ) : null}
+                <div className="min-w-0 flex-1">
+                  <CardTitle className="text-base font-medium text-slate-900">
+                    {good.item_name}
+                  </CardTitle>
+                  <div className="mt-1 text-sm text-slate-600">
+                    {formatYen(good.price)}
+                  </div>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0 pt-3">
+              {good.has_variants && good.variants?.length ? (
+                <div className="flex flex-col gap-2">
+                  {good.variants.map((variant) => (
+                    <div
+                      key={variant.variant_id}
+                      className="flex min-h-10 items-center justify-between gap-3"
+                    >
+                      <div className="min-w-0 flex-1 truncate text-sm text-slate-800">
+                        {variant.variant_name}
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          data-html2canvas-ignore="true"
+                          onClick={() =>
+                            bump(good.goods_id, variant.variant_id, -1)
+                          }
+                          disabled={isLoadingExistingList}
+                        >
+                          -
+                        </Button>
+                        <div className="w-8 text-center text-sm font-medium">
+                          {getQuantity(good.goods_id, variant.variant_id)}
+                        </div>
+                        <Button
+                          size="sm"
+                          data-html2canvas-ignore="true"
+                          onClick={() =>
+                            bump(good.goods_id, variant.variant_id, 1)
+                          }
+                          disabled={isLoadingExistingList}
+                        >
+                          +
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex min-h-10 items-center justify-between gap-3">
+                  <div className="text-sm text-slate-800">数量</div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      data-html2canvas-ignore="true"
+                      onClick={() => bump(good.goods_id, null, -1)}
+                      disabled={isLoadingExistingList}
+                    >
+                      -
+                    </Button>
+                    <div className="w-8 text-center text-sm font-medium">
+                      {getQuantity(good.goods_id, null)}
+                    </div>
+                    <Button
+                      size="sm"
+                      data-html2canvas-ignore="true"
+                      onClick={() => bump(good.goods_id, null, 1)}
+                      disabled={isLoadingExistingList}
+                    >
+                      +
+                    </Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
-        ) : null}
+        ))}
 
-        <div id="shopping-list-capture-area" className="space-y-4">
-          {goods.map((good) => (
-            <Card key={good.goods_id} className="p-3">
-              <CardHeader className="p-0">
-                <div className="flex items-start gap-3">
-                  {good.image_url ? (
-                    <img
-                      crossOrigin="anonymous"
-                      src={good.image_url}
-                      alt={good.item_name}
-                      className="h-20 w-20 shrink-0 rounded-md border border-slate-200 bg-white object-cover"
-                      loading="lazy"
-                    />
-                  ) : null}
-                  <div className="min-w-0 flex-1">
-                    <CardTitle className="text-base font-medium text-slate-900">
-                      {good.item_name}
-                    </CardTitle>
-                    <div className="mt-1 text-sm text-slate-600">
-                      {formatYen(good.price)}
-                    </div>
-                  </div>
+        <div className="sticky bottom-3 z-10 rounded-xl border border-primary/20 bg-primary/5 p-4 shadow-lg backdrop-blur md:static md:shadow-sm">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <div className="text-xs font-medium text-slate-500">
+                  合計点数
                 </div>
-              </CardHeader>
-              <CardContent className="p-0 pt-3">
-                {good.has_variants && good.variants?.length ? (
-                  <div className="flex flex-col gap-2">
-                    {good.variants.map((variant) => (
-                      <div
-                        key={variant.variant_id}
-                        className="flex min-h-10 items-center justify-between gap-3"
-                      >
-                        <div className="min-w-0 flex-1 truncate text-sm text-slate-800">
-                          {variant.variant_name}
-                        </div>
-                        <div className="flex shrink-0 items-center gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            data-html2canvas-ignore="true"
-                            onClick={() =>
-                              bump(good.goods_id, variant.variant_id, -1)
-                            }
-                            disabled={isLoadingExistingList}
-                          >
-                            -
-                          </Button>
-                          <div className="w-8 text-center text-sm font-medium">
-                            {getQuantity(good.goods_id, variant.variant_id)}
-                          </div>
-                          <Button
-                            size="sm"
-                            data-html2canvas-ignore="true"
-                            onClick={() =>
-                              bump(good.goods_id, variant.variant_id, 1)
-                            }
-                            disabled={isLoadingExistingList}
-                          >
-                            +
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="flex min-h-10 items-center justify-between gap-3">
-                    <div className="text-sm text-slate-800">数量</div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        data-html2canvas-ignore="true"
-                        onClick={() => bump(good.goods_id, null, -1)}
-                        disabled={isLoadingExistingList}
-                      >
-                        -
-                      </Button>
-                      <div className="w-8 text-center text-sm font-medium">
-                        {getQuantity(good.goods_id, null)}
-                      </div>
-                      <Button
-                        size="sm"
-                        data-html2canvas-ignore="true"
-                        onClick={() => bump(good.goods_id, null, 1)}
-                        disabled={isLoadingExistingList}
-                      >
-                        +
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ))}
-
-          <div className="sticky bottom-3 z-10 rounded-xl border border-primary/20 bg-primary/5 p-4 shadow-lg backdrop-blur md:static md:shadow-sm">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <div className="text-xs font-medium text-slate-500">
-                    合計点数
-                  </div>
-                  <div className="mt-1 flex items-baseline gap-1">
-                    <span className="text-2xl font-bold text-slate-950">
-                      {totals.totalItems}
-                    </span>
-                    <span className="text-sm font-medium text-slate-600">点</span>
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs font-medium text-slate-500">
-                    合計金額
-                  </div>
-                  <div className="mt-1 text-2xl font-bold leading-none text-slate-950">
-                    {formatYen(totals.totalAmount)}
-                  </div>
+                <div className="mt-1 flex items-baseline gap-1">
+                  <span className="text-2xl font-bold text-slate-950">
+                    {totals.totalItems}
+                  </span>
+                  <span className="text-sm font-medium text-slate-600">点</span>
                 </div>
               </div>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Button
-                  variant="outline"
-                  data-html2canvas-ignore="true"
-                  className="h-11 w-full text-base font-semibold sm:w-auto"
-                  onPointerDown={(event) => {
-                    event.stopPropagation();
-                  }}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    void handleImageSaveClick();
-                  }}
-                  disabled={isSavingImage}
-                >
-                  <Download className="h-4 w-4" />
-                  {isSavingImage ? "画像保存中..." : "画像として保存"}
-                </Button>
-                <Button
-                  data-html2canvas-ignore="true"
-                  className="h-11 w-full text-base font-semibold sm:w-auto"
-                  onClick={handleSaveCart}
-                  disabled={isSaving || isLoadingExistingList}
-                >
-                  {isSaving
-                    ? initialListId
-                      ? "更新中..."
-                      : "保存中..."
-                    : initialListId
-                      ? "更新する"
-                      : "保存する"}
-                </Button>
+              <div>
+                <div className="text-xs font-medium text-slate-500">
+                  合計金額
+                </div>
+                <div className="mt-1 text-2xl font-bold leading-none text-slate-950">
+                  {formatYen(totals.totalAmount)}
+                </div>
               </div>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Button
+                variant="outline"
+                data-html2canvas-ignore="true"
+                className="h-11 w-full text-base font-semibold sm:w-auto"
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                }}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void handleImageSaveClick();
+                }}
+                disabled={isSavingImage}
+              >
+                <Download className="h-4 w-4" />
+                {isSavingImage ? "画像保存中..." : "画像として保存"}
+              </Button>
+              <Button
+                data-html2canvas-ignore="true"
+                className="h-11 w-full text-base font-semibold sm:w-auto"
+                onClick={handleSaveCart}
+                disabled={isSaving || isLoadingExistingList}
+              >
+                {isSaving
+                  ? initialListId
+                    ? "更新中..."
+                    : "保存中..."
+                  : initialListId
+                    ? "更新する"
+                    : "保存する"}
+              </Button>
             </div>
           </div>
         </div>
+      </div>
 
-        <Dialog open={loginPromptOpen} onOpenChange={setLoginPromptOpen}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>ログインが必要です</DialogTitle>
-              <DialogDescription>
-                {loginPromptMessage ??
-                  "買い物リストを保存するには、ログインまたは登録が必要です。"}
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
+      <Dialog open={loginPromptOpen} onOpenChange={setLoginPromptOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>ログインが必要です</DialogTitle>
+            <DialogDescription>
+              {loginPromptMessage ??
+                "買い物リストを保存するには、ログインまたは登録が必要です。"}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                persistSelectedQuantities();
+                router.push("/shopping-list");
+              }}
+            >
+              買い物リストへ移動
+            </Button>
+            <Button onClick={() => setLoginPromptOpen(false)}>
+              閉じる
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+
+      <Dialog open={showLoginModal} onOpenChange={setShowLoginModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>ログイン / 新規登録</DialogTitle>
+            <DialogDescription>
+              グッズリストを保存するにはログインまたは登録が必要です。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 rounded-lg bg-slate-100 p-1">
               <Button
-                variant="outline"
+                type="button"
+                variant={authMode === "signin" ? "default" : "ghost"}
                 onClick={() => {
-                  persistSelectedQuantities();
-                  router.push("/shopping-list");
+                  setAuthMode("signin");
+                  setAuthMessage(null);
                 }}
               >
-                買い物リストへ移動
+                <LogIn className="mr-2 h-4 w-4" />
+                ログイン
               </Button>
-              <Button onClick={() => setLoginPromptOpen(false)}>
-                閉じる
+              <Button
+                type="button"
+                variant={authMode === "signup" ? "default" : "ghost"}
+                onClick={() => {
+                  setAuthMode("signup");
+                  setAuthMessage(null);
+                }}
+              >
+                <UserPlus className="mr-2 h-4 w-4" />
+                登録
               </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-
-        <Dialog open={showLoginModal} onOpenChange={setShowLoginModal}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>ログイン / 新規登録</DialogTitle>
-              <DialogDescription>
-                グッズリストを保存するにはログインまたは登録が必要です。
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 rounded-lg bg-slate-100 p-1">
-                <Button
-                  type="button"
-                  variant={authMode === "signin" ? "default" : "ghost"}
-                  onClick={() => {
-                    setAuthMode("signin");
-                    setAuthMessage(null);
-                  }}
-                >
-                  <LogIn className="mr-2 h-4 w-4" />
-                  ログイン
-                </Button>
-                <Button
-                  type="button"
-                  variant={authMode === "signup" ? "default" : "ghost"}
-                  onClick={() => {
-                    setAuthMode("signup");
-                    setAuthMessage(null);
-                  }}
-                >
-                  <UserPlus className="mr-2 h-4 w-4" />
-                  登録
-                </Button>
-              </div>
-              <div className="space-y-3">
-                <Input
-                  value={authUserName}
-                  onChange={(event) => setAuthUserName(event.target.value)}
-                  placeholder="ユーザー名（半角英数15文字以内）"
-                  autoComplete="username"
-                />
-                <Input
-                  type="password"
-                  value={authPassword}
-                  onChange={(event) => setAuthPassword(event.target.value)}
-                  placeholder="パスワード（半角英数字）"
-                  autoComplete={
-                    authMode === "signin" ? "current-password" : "new-password"
-                  }
-                />
-                {authMessage ? (
-                  <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-                    {authMessage}
-                  </div>
-                ) : null}
-                <Button
-                  onClick={() => void handleAuth(authMode)}
-                  disabled={authBusy}
-                  className="w-full"
-                >
-                  {authBusy
-                    ? authMode === "signin"
-                      ? "ログイン中..."
-                      : "登録中..."
-                    : authMode === "signin"
-                      ? "ログイン"
-                      : "登録"}
-                </Button>
-              </div>
             </div>
-          </DialogContent>
-        </Dialog>
-      </div>
-    );
-  }
+            <div className="space-y-3">
+              <Input
+                value={authUserName}
+                onChange={(event) => setAuthUserName(event.target.value)}
+                placeholder="ユーザー名（半角英数15文字以内）"
+                autoComplete="username"
+              />
+              <Input
+                type="password"
+                value={authPassword}
+                onChange={(event) => setAuthPassword(event.target.value)}
+                placeholder="パスワード（半角英数字）"
+                autoComplete={
+                  authMode === "signin" ? "current-password" : "new-password"
+                }
+              />
+              {authMessage ? (
+                <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                  {authMessage}
+                </div>
+              ) : null}
+              <Button
+                onClick={() => void handleAuth(authMode)}
+                disabled={authBusy}
+                className="w-full"
+              >
+                {authBusy
+                  ? authMode === "signin"
+                    ? "ログイン中..."
+                    : "登録中..."
+                  : authMode === "signin"
+                    ? "ログイン"
+                    : "登録"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

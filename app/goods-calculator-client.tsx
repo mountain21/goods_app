@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /* eslint-disable @next/next/no-img-element */
 
@@ -25,7 +25,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { downloadElementAsImage } from "@/utils/imageExport";
+import { renderElementAsImageBlob } from "@/utils/imageExport";
+import { handleImageSave } from "@/utils/imageSaver";
 
 const SELECTED_QUANTITIES_STORAGE_KEY = "goods-calculator:selectedQuantities";
 
@@ -584,12 +585,17 @@ export function GoodsCalculatorClient({
     if (isSavingImage) return;
 
     setIsSavingImage(true);
+    const debugAlert = (msg: string) => {
+      console.log(msg);
+    };
 
     try {
-      await downloadElementAsImage(
+      const { blob, fileName } = await renderElementAsImageBlob(
         exportImageData,
         <ExportListImage data={exportImageData} />
       );
+
+      await handleImageSave(blob, fileName);
     } catch (error) {
       toast({
         title: "画像保存に失敗しました",
@@ -833,6 +839,7 @@ export function GoodsCalculatorClient({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
 
       <Dialog open={showLoginModal} onOpenChange={setShowLoginModal}>
         <DialogContent className="sm:max-w-md">

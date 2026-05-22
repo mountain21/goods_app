@@ -66,14 +66,9 @@ const sections = [
       "重要な変更がある場合は、当アプリ上で分かりやすい方法により告知します。",
     ],
   },
-  {
-    title: "第10条（お問い合わせ先）",
-    body: [
-      "本プライバシーポリシーに関するお問い合わせは、以下の連絡先までお願いいたします。",
-      "お問い合わせ先: app.contact.ayumi@gmail.com",
-    ],
-  },
 ];
+
+const contactFormUrl = "https://docs.google.com/forms/d/e/1FAIpQLSfVamafuasqJXObWZw8th9wNh92XsoOHTn0wenYH8ieFU-PFg/viewform?usp=publish-editor";
 
 export default function PrivacyPolicyPage() {
   return (
@@ -125,6 +120,28 @@ export default function PrivacyPolicyPage() {
                 </div>
               </section>
             ))}
+
+            <section className="space-y-3">
+              <h2 className="text-lg font-semibold text-slate-950">
+                第10条（お問い合わせ先）
+              </h2>
+              <div className="space-y-2 text-sm leading-7 text-slate-700">
+                <p>
+                  本プライバシーポリシーに関するお問い合わせは、以下のフォームからお願いいたします。
+                </p>
+                <p>
+                  お問い合わせ先:{" "}
+                  <a
+                    href={contactFormUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline hover:text-slate-900"
+                  >
+                    Googleフォーム
+                  </a>
+                </p>
+              </div>
+            </section>
 
             <section className="rounded-lg border border-slate-200 bg-slate-50 p-4">
               <h2 className="text-base font-semibold text-slate-950">

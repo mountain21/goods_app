@@ -23,6 +23,7 @@ type EventRow = {
   event_end_date: string;
   venue: string | null;
   image_url: string | null;
+  show_flag: boolean;
 };
 
 type SupabaseLikeError = {
@@ -92,6 +93,7 @@ export default function HomePage() {
         .select(
           "event_id, artist_name, event_name, event_start_date, event_end_date, venue, image_url"
         )
+        .eq("show_flag", true)
         .order("event_start_date", { ascending: true });
 
       if (error) throw error;
@@ -195,6 +197,7 @@ export default function HomePage() {
                     className="text-slate-600 hover:text-slate-900"
                   >
                     <LogOut className="h-4 w-4" />
+                    <span>ログアウト</span>
                   </Button>
                 </div>
               </div>

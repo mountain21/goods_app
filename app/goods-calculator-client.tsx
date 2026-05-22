@@ -220,8 +220,8 @@ export function GoodsCalculatorClient({
           variantIdValue === "null"
             ? null
             : good?.variants?.find(
-                (variantItem) => variantItem.variant_id === variantIdValue
-              );
+              (variantItem) => variantItem.variant_id === variantIdValue
+            );
 
         return {
           name: variant
@@ -384,6 +384,7 @@ export function GoodsCalculatorClient({
   const handleAuth = async (mode: "signin" | "signup") => {
     setAuthMessage(null);
     const trimmedUserName = authUserName.trim();
+    const usernameRegex = /^[a-zA-Z0-9]{3,15}$/;
 
     if (!trimmedUserName) {
       setAuthMessage("ユーザー名を入力してください。");
@@ -400,6 +401,11 @@ export function GoodsCalculatorClient({
       return;
     }
 
+    if (!usernameRegex.test(trimmedUserName)) {
+      setAuthMessage("ユーザー名は15文字以内の半角英数字で入力してください。");
+      return;
+    }
+
     setAuthBusy(true);
 
     try {
@@ -407,18 +413,18 @@ export function GoodsCalculatorClient({
       const { data, error } =
         mode === "signin"
           ? await supabase.auth.signInWithPassword({
-              email: dummyEmail,
-              password: authPassword,
-            })
+            email: dummyEmail,
+            password: authPassword,
+          })
           : await supabase.auth.signUp({
-              email: dummyEmail,
-              password: authPassword,
-              options: {
-                data: {
-                  username: trimmedUserName,
-                },
+            email: dummyEmail,
+            password: authPassword,
+            options: {
+              data: {
+                username: trimmedUserName,
               },
-            });
+            },
+          });
 
       if (error) {
         const normalized = error.message ?? String(error);
@@ -567,7 +573,7 @@ export function GoodsCalculatorClient({
     // ログイン成功後に自動保存処理を実行
     setShowLoginModal(false);
     setAutoSavePending(false);
-    
+
     // 次のイベントループで実行して、モーダルクローズアニメーション後に処理
     window.setTimeout(() => {
       void handleSaveCart();
@@ -865,14 +871,14 @@ export function GoodsCalculatorClient({
               <Input
                 value={authUserName}
                 onChange={(event) => setAuthUserName(event.target.value)}
-                placeholder="ユーザー名"
+                placeholder="ユーザー名（半角英数15文字以内）"
                 autoComplete="username"
               />
               <Input
                 type="password"
                 value={authPassword}
                 onChange={(event) => setAuthPassword(event.target.value)}
-                placeholder="パスワード"
+                placeholder="パスワード（半角英数字）"
                 autoComplete={
                   authMode === "signin" ? "current-password" : "new-password"
                 }

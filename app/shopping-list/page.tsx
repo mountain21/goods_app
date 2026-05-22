@@ -155,6 +155,7 @@ export default function ShoppingListPage() {
   const handleAuth = async (mode: "signin" | "signup") => {
     setAuthMessage(null);
     const trimmedUserName = authUserName.trim();
+    const usernameRegex = /^[a-zA-Z0-9]{3,15}$/;
 
     if (!trimmedUserName) {
       setAuthMessage("ユーザー名を入力してください。");
@@ -171,6 +172,11 @@ export default function ShoppingListPage() {
       return;
     }
 
+    if (!usernameRegex.test(trimmedUserName)) {
+      setAuthMessage("ユーザー名は15文字以内の半角英数字で入力してください。");
+      return;
+    }
+
     setAuthBusy(true);
     setMessage(null);
 
@@ -179,18 +185,18 @@ export default function ShoppingListPage() {
       const { data, error } =
         mode === "signin"
           ? await supabase.auth.signInWithPassword({
-              email: dummyEmail,
-              password: authPassword,
-            })
+            email: dummyEmail,
+            password: authPassword,
+          })
           : await supabase.auth.signUp({
-              email: dummyEmail,
-              password: authPassword,
-              options: {
-                data: {
-                  username: trimmedUserName,
-                },
+            email: dummyEmail,
+            password: authPassword,
+            options: {
+              data: {
+                username: trimmedUserName,
               },
-            });
+            },
+          });
 
       if (error) {
         const normalized = error.message ?? String(error);
@@ -205,7 +211,7 @@ export default function ShoppingListPage() {
         return;
       }
 
-      setMessage(mode === "signin" ? "ログインしました。" : "登録しました。" );
+      setMessage(mode === "signin" ? "ログインしました。" : "登録しました。");
       setAuthMessage(null);
       setAuthUserName("");
       setAuthPassword("");
@@ -643,7 +649,7 @@ export default function ShoppingListPage() {
                   <Input
                     value={authUserName}
                     onChange={(event) => setAuthUserName(event.target.value)}
-                    placeholder="ユーザー名（半角英数字15文字以内）"
+                    placeholder="ユーザー名（半角英数15文字以内）"
                     autoComplete="username"
                   />
                   <Input
@@ -749,172 +755,166 @@ export default function ShoppingListPage() {
                           </div>
 
                           <div className="min-w-0 flex-1">
-                          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                            <div className="min-w-0">
-                              <div className="line-clamp-2 text-sm font-medium text-slate-600">
-                                {getEventTitle(list.event)}
+                            <div className="flex flex-col gap-2"> {/* 変更: lg:flex-row を削除し常に縦積みをベースに */}
+                              <div className="min-w-0">
+                                <div className="line-clamp-2 text-sm font-medium text-slate-600">
+                                  {getEventTitle(list.event)}
+                                </div>
+
+                                {isEditingName ? (
+                                  <Input
+                                    ref={nameInputRef}
+                                    value={editingListName}
+                                    onChange={(event) =>
+                                      setEditingListName(event.target.value)
+                                    }
+                                    onBlur={() => void saveListName(list)}
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter") {
+                                        event.preventDefault();
+                                        event.currentTarget.blur();
+                                      }
+                                      if (event.key === "Escape") {
+                                        event.preventDefault();
+                                        cancelEditingListName();
+                                      }
+                                    }}
+                                    disabled={isSavingName}
+                                    className="mt-1 h-9 max-w-lg text-lg font-semibold"
+                                  />
+                                ) : (
+                                  <div className="mt-1 flex w-full items-center gap-2"> {/* flex と items-center を追加 */}
+                                    <h3 className="min-w-0 flex-1 break-words text-lg font-semibold text-slate-950 leading-tight">
+                                      {list.list_name}
+                                    </h3>
+                                    <button
+                                      type="button"
+                                      data-html2canvas-ignore="true"
+                                      onClick={() => startEditingListName(list)}
+                                      className="inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-transparent transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2"
+                                      aria-label="買い物リスト名を編集"
+                                    >
+                                      <img
+                                        src={pencilIcon.src}
+                                        alt=""
+                                        className="h-4 w-4 shrink-0"
+                                      />
+                                    </button>
+                                  </div>
+                                )}
+
+                                <div className="mt-2 text-sm text-slate-600">
+                                  作成日: {formatDate(list.created_at)}
+                                </div>
                               </div>
 
-                              {isEditingName ? (
-                                <Input
-                                  ref={nameInputRef}
-                                  value={editingListName}
-                                  onChange={(event) =>
-                                    setEditingListName(event.target.value)
-                                  }
-                                  onBlur={() => void saveListName(list)}
-                                  onKeyDown={(event) => {
-                                    if (event.key === "Enter") {
-                                      event.preventDefault();
-                                      event.currentTarget.blur();
-                                    }
-                                    if (event.key === "Escape") {
-                                      event.preventDefault();
-                                      cancelEditingListName();
-                                    }
-                                  }}
-                                  disabled={isSavingName}
-                                  className="mt-1 h-9 max-w-lg text-lg font-semibold"
-                                />
-                              ) : (
-                                <div className="mt-1 flex min-w-0 items-center gap-2">
-                                  <h3 className="min-w-0 truncate text-lg font-semibold text-slate-950">
-                                    {list.list_name}
-                                  </h3>
-                                  <button
-                                    type="button"
-                                    data-html2canvas-ignore="true"
-                                    onClick={() => startEditingListName(list)}
-                                    className="inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-transparent transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2"
-                                    aria-label="買い物リスト名を編集"
-                                  >
-                                    <img
-                                      src={pencilIcon.src}
-                                      alt=""
-                                      className="h-4 w-4 object-contain"
-                                    />
-                                  </button>
+                              <div className="grid grid-cols-2 gap-2 rounded-lg border border-primary/20 bg-primary/5 p-2">
+                                <div>
+                                  <div>
+                                    <div className="text-[10px] font-medium text-slate-500 uppercase">合計点数</div>
+                                    <div className="text-base font-bold text-slate-950">{list.total_items}点</div>
+                                  </div>
                                 </div>
-                              )}
-
-                              <div className="mt-2 text-sm text-slate-600">
-                                作成日: {formatDate(list.created_at)}
+                                <div>
+                                  <div>
+                                    <div className="text-[10px] font-medium text-slate-500 uppercase">合計金額</div>
+                                    <div className="text-base font-bold text-slate-950">{formatYen(list.total_amount)}</div>
+                                  </div>
+                                </div>
                               </div>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-3 rounded-lg border border-primary/20 bg-primary/5 p-3 lg:min-w-56">
-                              <div>
-                                <div className="text-xs font-medium text-slate-500">
-                                  合計点数
-                                </div>
-                                <div className="mt-1 text-xl font-bold text-slate-950">
-                                  {list.total_items}点
-                                </div>
-                              </div>
-                              <div>
-                                <div className="text-xs font-medium text-slate-500">
-                                  合計金額
-                                </div>
-                                <div className="mt-1 text-xl font-bold text-slate-950">
-                                  {formatYen(list.total_amount)}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div
-                            data-html2canvas-ignore="true"
-                            className="mt-4 flex flex-col gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between"
-                          >
-                            <Button
-                              type="button"
-                              variant="ghost"
+                            <div
                               data-html2canvas-ignore="true"
-                              onClick={() =>
-                                toggleListOpen(list.shopping_list_id)
-                              }
-                              aria-expanded={isOpen}
-                              className="w-full justify-between sm:w-auto"
+                              className="mt-4 flex flex-col gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between"
                             >
-                              {isOpen ? "詳細を閉じる" : "詳細を表示する"}
-                              <ChevronDown
-                                className={`h-4 w-4 transition-transform duration-200 ${
-                                  isOpen ? "rotate-180" : ""
-                                }`}
-                              />
-                            </Button>
-
-                            <div className="flex flex-col gap-2 sm:flex-row">
                               <Button
                                 type="button"
-                                variant="outline"
+                                variant="ghost"
                                 data-html2canvas-ignore="true"
-                                onClick={() => handleEditList(list)}
-                                className="w-full sm:w-auto"
-                              >
-                                <img src={pencilIcon.src} alt="編集" className="h-4 w-4" />
-                                編集
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="destructive"
-                                data-html2canvas-ignore="true"
-                                onClick={() => void handleDeleteList(list)}
-                                disabled={
-                                  deletingListId === list.shopping_list_id
+                                onClick={() =>
+                                  toggleListOpen(list.shopping_list_id)
                                 }
-                                className="w-full sm:w-auto"
+                                aria-expanded={isOpen}
+                                className="w-full justify-between sm:w-auto"
                               >
-                                <Trash2 className="h-4 w-4" />
-                                {deletingListId === list.shopping_list_id
-                                  ? "削除中..."
-                                  : "削除"}
+                                {isOpen ? "詳細を閉じる" : "詳細を表示する"}
+                                <ChevronDown
+                                  className={`h-4 w-4 transition-transform duration-200 ${isOpen ? "rotate-180" : ""
+                                    }`}
+                                />
                               </Button>
+
+                              <div className="flex flex-col gap-2 sm:flex-row">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  data-html2canvas-ignore="true"
+                                  onClick={() => handleEditList(list)}
+                                  className="w-full sm:w-auto"
+                                >
+                                  <img src={pencilIcon.src} alt="編集" className="h-4 w-4" />
+                                  編集
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="destructive"
+                                  data-html2canvas-ignore="true"
+                                  onClick={() => void handleDeleteList(list)}
+                                  disabled={
+                                    deletingListId === list.shopping_list_id
+                                  }
+                                  className="w-full sm:w-auto"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                  {deletingListId === list.shopping_list_id
+                                    ? "削除中..."
+                                    : "削除"}
+                                </Button>
+                              </div>
                             </div>
-                          </div>
                           </div>
                         </div>
 
                         <div
-                            className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out sm:ml-[136px] ${
-                              isOpen
-                                ? "grid-rows-[1fr] opacity-100"
-                                : "grid-rows-[0fr] opacity-0"
+                          className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out sm:ml-[136px] ${isOpen
+                            ? "grid-rows-[1fr] opacity-100"
+                            : "grid-rows-[0fr] opacity-0"
                             }`}
-                          >
-                            <div className="overflow-hidden">
-                              <div className="mt-4 rounded-lg border border-slate-200">
-                                {list.items.length > 0 ? (
-                                  <div className="divide-y divide-slate-100">
-                                    <div className="grid grid-cols-[1fr_72px_96px] gap-3 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-500">
-                                      <div>グッズ名</div>
-                                      <div className="text-right">点数</div>
-                                      <div className="text-right">単価</div>
-                                    </div>
-                                    {list.items.map((item) => (
-                                      <div
-                                        key={item.id}
-                                        className="grid grid-cols-[1fr_72px_96px] gap-3 px-3 py-3 text-sm text-slate-700"
-                                      >
-                                        <div className="min-w-0 truncate font-medium text-slate-900">
-                                          {item.name}
-                                        </div>
-                                        <div className="text-right">
-                                          {item.quantity}点
-                                        </div>
-                                        <div className="text-right">
-                                          {formatYen(item.unit_price)}
-                                        </div>
+                        >
+                          <div className="overflow-hidden">
+                            <div className="mt-4 rounded-lg border border-slate-200">
+                              {list.items.length > 0 ? (
+                                <div className="divide-y divide-slate-100">
+                                  <div className="grid grid-cols-[1fr_72px_96px] gap-3 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-500">
+                                    <div>グッズ名</div>
+                                    <div className="text-right">点数</div>
+                                    <div className="text-right">単価</div>
+                                  </div>
+                                  {list.items.map((item) => (
+                                    <div
+                                      key={item.id}
+                                      className="flex flex-col gap-2 sm:grid sm:grid-cols-[1fr_auto_auto] sm:gap-3 px-3 py-3 text-sm text-slate-700"
+                                    >
+                                      <div className="font-medium text-slate-900 break-words">
+                                        {item.name}
                                       </div>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <div className="px-3 py-4 text-sm text-slate-600">
-                                    このリストにはグッズがありません。
-                                  </div>
-                                )}
-                              </div>
+                                      <div className="text-right sm:text-right">
+                                        {item.quantity}点
+                                      </div>
+                                      <div className="text-right sm:text-right">
+                                        {formatYen(item.unit_price)}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="px-3 py-4 text-sm text-slate-600">
+                                  このリストにはグッズがありません。
+                                </div>
+                              )}
                             </div>
+                          </div>
                         </div>
                       </CardContent>
                     </Card>

@@ -7,6 +7,7 @@ import { downloadBlob } from "@/utils/blobDownload";
 const EXPORT_IMAGE_WIDTH = 720;
 
 type RenderElementAsImageBlobOptions = {
+  excludeExternalImages?: boolean;
   pixelRatio?: number;
 };
 
@@ -87,6 +88,18 @@ async function waitForFonts(timeoutMs: number) {
   if (!fonts?.ready) return;
 
   await withTimeout(fonts.ready.then(() => undefined), timeoutMs, undefined);
+}
+
+function isExternalImage(image: HTMLImageElement) {
+  const src = image.currentSrc || image.src;
+
+  if (!src) return false;
+
+  try {
+    return new URL(src, window.location.href).origin !== window.location.origin;
+  } catch {
+    return true;
+  }
 }
 
 async function waitForImage(
@@ -190,7 +203,12 @@ export async function renderElementAsImageBlob(
       foreignObjectRendering: false,
       height: captureHeight,
       ignoreElements: (target) =>
-        target.hasAttribute("data-html2canvas-ignore"),
+        target.hasAttribute("data-html2canvas-ignore") ||
+        Boolean(
+          options.excludeExternalImages &&
+            target instanceof HTMLImageElement &&
+            isExternalImage(target)
+        ),
       imageTimeout: 15000,
       logging: false,
       onclone: (clonedDocument) => {

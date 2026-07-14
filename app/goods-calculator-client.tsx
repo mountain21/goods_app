@@ -447,7 +447,11 @@ export function GoodsCalculatorClient({
       const { blob, fileName } = await withTimeout(
         renderElementAsImageBlob(
           exportImageData,
-          <ExportListImage data={exportImageData} />
+          <ExportListImage data={exportImageData} />,
+          {
+            excludeExternalImages: true,
+            pixelRatio: 1,
+          }
         ),
         IMAGE_RENDER_TIMEOUT_MS,
         "画像生成がタイムアウトしました。"

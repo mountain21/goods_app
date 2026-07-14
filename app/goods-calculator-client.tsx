@@ -65,6 +65,21 @@ type Props = {
   initialListId?: string | null;
 };
 
+type GeneratedImageDebug = {
+  type?: string;
+  size?: number;
+  sizeMb?: number;
+  signature?: string;
+  outputWidth?: number;
+  outputHeight?: number;
+  pixelRatio?: number;
+  renderElapsedMs?: number;
+  downloadTriggered: boolean;
+  error?: string;
+};
+
+const PNG_SIGNATURE = "89 50 4e 47 0d 0a 1a 0a";
+
 function formatYen(value: number) {
   return `¥${value.toLocaleString("ja-JP")}`;
 }
@@ -127,6 +142,8 @@ export function GoodsCalculatorClient({
   const [storageError, setStorageError] = useState<string | null>(null);
   const [isSavingImage, setIsSavingImage] = useState(false);
   const [isDebugPngReady, setIsDebugPngReady] = useState(false);
+  const [generatedImageDebug, setGeneratedImageDebug] =
+    useState<GeneratedImageDebug | null>(null);
 
   const goodsById = useMemo(
     () => new Map(goods.map((good) => [good.goods_id, good])),
@@ -457,6 +474,10 @@ export function GoodsCalculatorClient({
     setIsSavingImage(true);
 
     try {
+      if (showImageDownloadDebug) {
+        setGeneratedImageDebug(null);
+      }
+
       const renderStartedAt = performance.now();
       const { blob, fileName, outputWidth, outputHeight, pixelRatio } =
         await renderElementAsImageBlob(
@@ -468,39 +489,64 @@ export function GoodsCalculatorClient({
       );
 
       if (showImageDownloadDebug) {
-        if (blob.size === 0) {
-          throw new Error("生成された画像データが空です。");
-        }
-
-        if (blob.type !== "image/png") {
-          throw new Error(`生成画像のMIMEタイプが不正です: ${blob.type}`);
-        }
-
         const signature = new Uint8Array(
           await blob.slice(0, 8).arrayBuffer()
         );
-        const pngSignature = Array.from(signature)
-          .map((value) => value.toString(16).padStart(2, "0"))
-          .join(" ");
-
-        console.debug("[generated-image-debug]", {
+        const debugInfo: GeneratedImageDebug = {
           type: blob.type,
           size: blob.size,
           sizeMb: Number((blob.size / 1024 / 1024).toFixed(2)),
-          signature: pngSignature,
+          signature: Array.from(signature)
+          .map((value) => value.toString(16).padStart(2, "0"))
+            .join(" "),
           renderElapsedMs: Math.round(performance.now() - renderStartedAt),
           outputWidth,
           outputHeight,
           pixelRatio,
+          downloadTriggered: false,
+        };
+
+        if (blob.size === 0) {
+          throw new Error("生成されたPNG Blobが空です。");
+        }
+
+        if (blob.type !== "image/png") {
+          throw new Error(
+            `生成されたBlobのMIMEタイプが不正です: ${blob.type}`
+          );
+        }
+
+        if (debugInfo.signature !== PNG_SIGNATURE) {
+          setGeneratedImageDebug({
+            ...debugInfo,
+            error: `PNGシグネチャが不正です: ${debugInfo.signature}`,
+          });
+          return;
+        }
+
+        console.debug("[generated-image-debug]", {
+          ...debugInfo,
+          downloadTriggered: true,
         });
 
         downloadBlob(blob, fileName);
+        setGeneratedImageDebug({
+          ...debugInfo,
+          downloadTriggered: true,
+        });
         return;
       }
 
       await handleImageSave(blob, fileName);
     } catch (error) {
       console.error("保存失敗:", error);
+      if (showImageDownloadDebug) {
+        setGeneratedImageDebug((current) => ({
+          ...(current ?? { downloadTriggered: false }),
+          downloadTriggered: false,
+          error: error instanceof Error ? error.message : String(error),
+        }));
+      }
       toast({
         title: "画像保存に失敗しました",
         description: "通信環境やブラウザ設定を確認してください。",
@@ -763,6 +809,19 @@ export function GoodsCalculatorClient({
           />
         </CardContent>
       </Card>
+
+      {showImageDownloadDebug && generatedImageDebug ? (
+        <Card className="border-amber-200 bg-amber-50">
+          <CardContent className="space-y-2 p-3">
+            <div className="text-sm font-medium text-amber-900">
+              生成画像デバッグ
+            </div>
+            <pre className="whitespace-pre-wrap rounded border border-amber-200 bg-white p-3 text-xs text-slate-800">
+              {JSON.stringify(generatedImageDebug, null, 2)}
+            </pre>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {showImageDownloadDebug ? (
         <Card className="border-amber-200 bg-amber-50">

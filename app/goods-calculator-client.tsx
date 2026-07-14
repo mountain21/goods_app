@@ -11,7 +11,7 @@ import {
   ListChecks,
   RotateCcw,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
 import {
   ExportListImage,
@@ -65,7 +65,6 @@ type Props = {
   initialListId?: string | null;
 };
 
-const IS_DEV = process.env.NODE_ENV !== "production";
 const TEST_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 
@@ -126,8 +125,11 @@ export function GoodsCalculatorClient({
   initialListId,
 }: Props) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { toast } = useToast();
   const importInputRef = useRef<HTMLInputElement | null>(null);
+  const showImageDownloadDebug =
+    searchParams.get("debug_image_download") === "1";
 
   const [currentListId, setCurrentListId] = useState<string | null>(
     initialListId ?? null
@@ -297,14 +299,14 @@ export function GoodsCalculatorClient({
   }, [event.event_id, hasLoadedStorage, quantities, toast]);
 
   useEffect(() => {
-    if (!IS_DEV) return;
+    if (!showImageDownloadDebug) return;
 
     const timeoutId = window.setTimeout(() => {
       setPreparedTestBlob(createPreparedTestPngBlob());
     }, 0);
 
     return () => window.clearTimeout(timeoutId);
-  }, []);
+  }, [showImageDownloadDebug]);
 
   const saveShoppingList = (forceNew: boolean) => {
     const { data: lists } = loadShoppingLists();
@@ -706,7 +708,7 @@ export function GoodsCalculatorClient({
         </CardContent>
       </Card>
 
-      {IS_DEV ? (
+      {showImageDownloadDebug ? (
         <Card className="border-amber-200 bg-amber-50">
           <CardContent className="space-y-3 p-3">
             <div className="text-sm font-medium text-amber-900">

@@ -592,6 +592,11 @@ export function GoodsCalculatorClient({
                   <div className="mt-1 text-sm text-slate-600">
                     {formatYen(good.price)}
                   </div>
+                  {good.max_quantity != null && (
+                    <div className="text-sm text-slate-600">
+                      {good.max_quantity}点まで
+                    </div>
+                  )}
                 </div>
               </div>
             </CardHeader>

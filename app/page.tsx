@@ -3,13 +3,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import type { Session } from "@supabase/supabase-js";
-import {
-  CalendarDays,
-  ListChecks,
-  LogOut,
-  MapPin,
-} from "lucide-react";
+import { CalendarDays, ListChecks, MapPin } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
@@ -32,13 +26,6 @@ type SupabaseLikeError = {
   hint?: string;
 };
 
-function getUsername(session: Session | null) {
-  const username = session?.user.user_metadata?.username;
-  return typeof username === "string" && username.trim()
-    ? username.trim()
-    : "ゲスト";
-}
-
 function getErrorMessage(error: unknown) {
   if (error instanceof Error) return error.message;
   if (error && typeof error === "object") {
@@ -56,7 +43,6 @@ function getErrorMessage(error: unknown) {
 function logError(label: string, error: unknown) {
   console.error(label);
   console.error("エラー詳細:", error);
-  console.dir(error);
 }
 
 function formatDateRange(startDate: string, endDate: string) {
@@ -76,9 +62,6 @@ export default function HomePage() {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
 
-  const [session, setSession] = useState<Session | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [events, setEvents] = useState<EventRow[]>([]);
   const [eventsLoading, setEventsLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
@@ -91,7 +74,7 @@ export default function HomePage() {
       const { data, error } = await supabase
         .from("events")
         .select(
-          "event_id, artist_name, event_name, event_start_date, event_end_date, venue, image_url"
+          "event_id, artist_name, event_name, event_start_date, event_end_date, venue, image_url, show_flag"
         )
         .eq("show_flag", true)
         .order("event_start_date", { ascending: true });
@@ -108,46 +91,14 @@ export default function HomePage() {
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
-      void supabase.auth.getSession().then(({ data, error }) => {
-        if (error) {
-          setMessage(`ログイン状態の確認に失敗しました: ${getErrorMessage(error)}`);
-        }
-
-        setSession(data.session);
-        setAuthLoading(false);
-      });
-
       void loadEvents();
     }, 0);
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setSession(nextSession);
-      setAuthLoading(false);
-    });
-
-    return () => {
-      window.clearTimeout(timeoutId);
-      subscription.unsubscribe();
-    };
-  }, [loadEvents, supabase]);
-
+    return () => window.clearTimeout(timeoutId);
+  }, [loadEvents]);
 
   const openEvent = (eventId: string) => {
     router.push(`/goods-calculator?event_id=${encodeURIComponent(eventId)}`);
-  };
-
-  const handleLogout = async () => {
-    setIsLoggingOut(true);
-    try {
-      await supabase.auth.signOut();
-      window.location.href = '/';
-    } catch (error) {
-      logError('logout error', error);
-      setMessage(`ログアウトに失敗しました: ${getErrorMessage(error)}`);
-      setIsLoggingOut(false);
-    }
   };
 
   return (
@@ -158,55 +109,23 @@ export default function HomePage() {
             イベントグッズ計算
           </h1>
           <p className="text-sm text-slate-600">
-            イベントを選んでグッズを計算し、ログインして買い物リストを保存できます。
+            イベントを選んでグッズの購入金額を計算できます。入力内容と買い物リストはログインなしでこのブラウザ内に保存されます。
           </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => router.push("/shopping-list")}
+            className="mt-2"
+          >
+            <ListChecks className="h-4 w-4" />
+            買い物リストを見る
+          </Button>
         </header>
 
-        {authLoading ? (
-          <Card className="border-slate-200 bg-white shadow-sm">
-            <CardContent className="p-4">
-              <div className="text-sm text-slate-600">ログイン状態を確認中...</div>
-            </CardContent>
-          </Card>
-        ) : session?.user ? (
-          <Card className="border-slate-200 bg-white shadow-sm">
-            <CardContent className="p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <div className="text-sm font-medium text-slate-950">
-                    ようこそ、{getUsername(session)}さん！
-                  </div>
-                  <div className="text-sm text-slate-600">
-                    保存した買い物リストを確認できます。
-                  </div>
-                </div>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <Button
-                    variant="outline"
-                    onClick={() => router.push("/shopping-list")}
-                    className="w-full sm:w-auto"
-                  >
-                    <ListChecks />
-                    買い物リスト
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleLogout}
-                    disabled={isLoggingOut}
-                    className="text-slate-600 hover:text-slate-900"
-                  >
-                    <LogOut className="h-4 w-4" />
-                    <span>ログアウト</span>
-                  </Button>
-                </div>
-              </div>
-
-              {message ? (
-                <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                  {message}
-                </div>
-              ) : null}
+        {message ? (
+          <Card className="border-rose-200 bg-rose-50">
+            <CardContent className="p-4 text-sm text-rose-700">
+              {message}
             </CardContent>
           </Card>
         ) : null}

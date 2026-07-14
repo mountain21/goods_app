@@ -6,6 +6,11 @@ import { handleImageSave } from "@/utils/imageSaver";
 
 const EXPORT_IMAGE_WIDTH = 720;
 
+type RenderElementAsImageBlobOptions = {
+  debug?: boolean;
+  pixelRatio?: number;
+};
+
 export class ImageExportError extends Error {
   constructor(
     message: string,
@@ -75,12 +80,14 @@ export async function downloadElementAsImage(
 
 export async function renderElementAsImageBlob(
   data: ExportListImageData,
-  element: ReactElement
+  element: ReactElement,
+  options: RenderElementAsImageBlobOptions = {}
 ) {
   const html2canvas = (await import("html2canvas")).default;
   const exportId = `export-list-image-${Date.now()}`;
   const host = document.createElement("div");
   const fileName = `${createSafeFileName(data.title || "shopping-list")}.png`;
+  const pixelRatio = options.pixelRatio ?? getCanvasScale();
 
   host.id = exportId;
   host.style.position = "fixed";
@@ -104,6 +111,8 @@ export async function renderElementAsImageBlob(
     await new Promise((resolve) => window.setTimeout(resolve, 100));
 
     const captureHeight = Math.ceil(host.scrollHeight || host.offsetHeight);
+    const sourceWidth = EXPORT_IMAGE_WIDTH;
+    const sourceHeight = captureHeight;
 
     const canvas = await html2canvas(host, {
       allowTaint: false,
@@ -117,7 +126,7 @@ export async function renderElementAsImageBlob(
       onclone: (clonedDocument) => {
         applyHtml2CanvasSafeStyles(clonedDocument, exportId);
       },
-      scale: getCanvasScale(),
+      scale: pixelRatio,
       scrollX: 0,
       scrollY: 0,
       useCORS: true,
@@ -159,6 +168,20 @@ export async function renderElementAsImageBlob(
         );
       }
     });
+
+    if (options.debug) {
+      console.debug("[generated-image-debug]", {
+        sourceWidth,
+        sourceHeight,
+        outputWidth: canvas.width,
+        outputHeight: canvas.height,
+        pixelRatio,
+        devicePixelRatio: window.devicePixelRatio,
+        blobType: blob.type,
+        blobSize: blob.size,
+        blobSizeMb: Number((blob.size / 1024 / 1024).toFixed(2)),
+      });
+    }
 
     return { blob, fileName };
   } finally {

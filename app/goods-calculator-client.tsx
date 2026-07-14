@@ -442,10 +442,35 @@ export function GoodsCalculatorClient({
     setIsSavingImage(true);
 
     try {
+      const renderStartedAt = performance.now();
       const { blob, fileName } = await renderElementAsImageBlob(
         exportImageData,
-        <ExportListImage data={exportImageData} />
+        <ExportListImage data={exportImageData} />,
+        {
+          debug: showImageDownloadDebug,
+          pixelRatio: showImageDownloadDebug ? 1 : undefined,
+        }
       );
+
+      if (showImageDownloadDebug) {
+        if (blob.size === 0 || blob.type !== "image/png") {
+          throw new Error("生成された画像データが不正です。");
+        }
+
+        const signature = new Uint8Array(
+          await blob.slice(0, 8).arrayBuffer()
+        );
+
+        console.debug("[generated-image-debug]", {
+          renderElapsedMs: Math.round(performance.now() - renderStartedAt),
+          pngSignature: Array.from(signature)
+            .map((value) => value.toString(16).padStart(2, "0"))
+            .join(" "),
+        });
+
+        downloadBlob(blob, fileName);
+        return;
+      }
 
       await handleImageSave(blob, fileName);
     } catch (error) {

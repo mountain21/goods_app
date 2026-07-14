@@ -1,3 +1,5 @@
+/* eslint-disable @next/next/no-img-element */
+
 import Link from "next/link";
 import { CalendarDays } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,6 +38,7 @@ interface EventSummary {
   event_name: string | null;
   event_start_date: string | null;
   event_end_date: string | null;
+  image_url: string | null;
 }
 
 interface GoodsRow {
@@ -94,7 +97,7 @@ async function loadSelectableEvents() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("events")
-    .select("event_id, artist_name, event_name, event_start_date, event_end_date")
+    .select("event_id, artist_name, event_name, event_start_date, event_end_date, image_url")
     .order("event_start_date", { ascending: false });
 
   if (error) {
@@ -188,6 +191,7 @@ function EventSelectionView({ events }: { events: EventSummary[] }) {
         <h1 className="text-2xl font-semibold text-slate-950">
           イベントを選択
         </h1>
+
         <p className="text-sm text-slate-600">
           グッズ計算を行うイベントを選択してください。
         </p>
@@ -202,35 +206,61 @@ function EventSelectionView({ events }: { events: EventSummary[] }) {
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {events.map((event) => (
-            <Card key={event.event_id} className="bg-white">
-              <CardContent className="flex h-full flex-col gap-4 p-4">
-                <div className="min-w-0 flex-1 space-y-2">
-                  <div className="text-sm font-medium text-slate-500">
-                    {event.artist_name || "アーティスト未設定"}
-                  </div>
-                  <CardTitle className="line-clamp-2 text-base text-slate-950">
-                    {event.event_name || "イベント名未設定"}
-                  </CardTitle>
-                  <div className="flex items-center gap-2 text-sm text-slate-600">
-                    <CalendarDays className="h-4 w-4" />
-                    <span>
-                      {formatDateRange(
-                        event.event_start_date,
-                        event.event_end_date
-                      )}
-                    </span>
-                  </div>
+            <Card
+              key={event.event_id}
+              className="flex h-full overflow-hidden bg-white"
+            >
+              <div className="flex w-full flex-col">
+                <div className="aspect-[16/10] w-full overflow-hidden bg-slate-100">
+                  {event.image_url ? (
+                    <img
+                      src={event.image_url}
+                      alt={`${event.artist_name || "アーティスト"} ${
+                        event.event_name || "イベント"
+                      }`}
+                      className="h-full w-full object-cover"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 px-4 text-center text-sm font-medium text-slate-500">
+                      {event.artist_name || "画像未設定"}
+                    </div>
+                  )}
                 </div>
-                <Button asChild className="w-full">
-                  <Link
-                    href={`/goods-calculator?event_id=${encodeURIComponent(
-                      event.event_id
-                    )}`}
-                  >
-                    このイベントを選択
-                  </Link>
-                </Button>
-              </CardContent>
+
+                <CardContent className="flex flex-1 flex-col p-4">
+                  <div className="flex-1 space-y-2">
+                    <div className="truncate text-sm font-medium text-slate-500">
+                      {event.artist_name || "アーティスト未設定"}
+                    </div>
+
+                    <CardTitle className="line-clamp-2 min-h-[3rem] text-base leading-6 text-slate-950">
+                      {event.event_name || "イベント名未設定"}
+                    </CardTitle>
+
+                    <div className="flex items-center gap-2 text-sm text-slate-600">
+                      <CalendarDays className="h-4 w-4 shrink-0" />
+
+                      <span>
+                        {formatDateRange(
+                          event.event_start_date,
+                          event.event_end_date
+                        )}
+                      </span>
+                    </div>
+                  </div>
+
+                  <Button asChild className="mt-6 w-full">
+                    <Link
+                      href={`/goods-calculator?event_id=${encodeURIComponent(
+                        event.event_id
+                      )}`}
+                    >
+                      このイベントを選択
+                    </Link>
+                  </Button>
+                </CardContent>
+              </div>
             </Card>
           ))}
         </div>

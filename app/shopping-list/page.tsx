@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { createClient } from "@/lib/client";
+import { downloadBlob } from "@/utils/blobDownload";
 import {
   createShoppingListsData,
   deleteShoppingList,
@@ -351,15 +352,8 @@ export default function ShoppingListPage() {
         [JSON.stringify(createShoppingListsData(lists), null, 2)],
         { type: "application/json" }
       );
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
       const date = new Date().toISOString().slice(0, 10);
-      link.href = url;
-      link.download = `goods-shopping-lists-backup-${date}.json`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      downloadBlob(blob, `goods-shopping-lists-backup-${date}.json`);
     } catch (error) {
       console.error("[shopping-list] failed to export lists", error);
       setMessage("買い物リストのエクスポートに失敗しました。");

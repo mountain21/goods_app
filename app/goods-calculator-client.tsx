@@ -19,7 +19,9 @@ import {
 } from "@/components/ExportListImage";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { downloadBlob } from "@/utils/blobDownload";
 import { renderElementAsImageBlob } from "@/utils/imageExport";
+import { handleImageSave } from "@/utils/imageSaver";
 import {
   clearGoodsDraft,
   createDraftData,
@@ -347,15 +349,8 @@ export function GoodsCalculatorClient({
       const blob = new Blob([JSON.stringify(data, null, 2)], {
         type: "application/json",
       });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
       const date = new Date().toISOString().slice(0, 10);
-      link.href = url;
-      link.download = `goods-calculator-draft-${date}.json`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      downloadBlob(blob, `goods-calculator-draft-${date}.json`);
     } catch (error) {
       console.error("[goods-storage] failed to export draft", error);
       toast({
@@ -418,17 +413,7 @@ export function GoodsCalculatorClient({
         <ExportListImage data={exportImageData} />
       );
 
-      window.setTimeout(() => {
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = fileName;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-        setIsSavingImage(false);
-      }, 0);
+      await handleImageSave(blob, fileName);
     } catch (error) {
       console.error("保存失敗:", error);
       toast({
@@ -436,6 +421,7 @@ export function GoodsCalculatorClient({
         description: "通信環境やブラウザ設定を確認してください。",
         variant: "destructive",
       });
+    } finally {
       setIsSavingImage(false);
     }
   };

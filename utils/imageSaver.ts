@@ -1,5 +1,4 @@
-const DOWNLOAD_START_DELAY_MS = 50;
-const OBJECT_URL_REVOKE_DELAY_MS = 30000;
+import { downloadBlob } from "@/utils/blobDownload";
 
 function normalizePngFileName(fileName: string) {
   const trimmed = fileName.trim().replace(/[\\/:*?"<>|]/g, "-");
@@ -8,27 +7,50 @@ function normalizePngFileName(fileName: string) {
   return /\.png$/i.test(safeName) ? safeName : `${safeName}.png`;
 }
 
-function wait(ms: number) {
-  return new Promise<void>((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === "AbortError";
 }
 
-function clickDownloadLink(url: string, fileName: string) {
-  const link = document.createElement("a");
+function shouldTryNativeShare() {
+  if (typeof window === "undefined") return false;
 
-  link.href = url;
-  link.download = fileName;
-  link.rel = "noopener";
-  link.target = "_self";
-  link.style.display = "none";
+  return (
+    navigator.maxTouchPoints > 0 &&
+    window.matchMedia?.("(pointer: coarse)").matches
+  );
+}
 
-  document.body.appendChild(link);
+async function shareImageFile(blob: Blob, fileName: string) {
+  if (
+    !shouldTryNativeShare() ||
+    typeof navigator === "undefined" ||
+    typeof navigator.share !== "function" ||
+    typeof navigator.canShare !== "function" ||
+    typeof File === "undefined"
+  ) {
+    return false;
+  }
+
+  const file = new File([blob], fileName, { type: "image/png" });
+  const shareData: ShareData = {
+    files: [file],
+    title: fileName,
+  };
+
+  if (!navigator.canShare(shareData)) {
+    return false;
+  }
 
   try {
-    link.click();
-  } finally {
-    link.remove();
+    await navigator.share(shareData);
+    return true;
+  } catch (error) {
+    if (isAbortError(error)) {
+      return true;
+    }
+
+    console.error("[image-save] failed to share image", error);
+    return false;
   }
 }
 
@@ -40,14 +62,11 @@ export const handleImageSave = async (blob: Blob, fileName: string) => {
   const normalizedFileName = normalizePngFileName(fileName);
   const pngBlob =
     blob.type === "image/png" ? blob : blob.slice(0, blob.size, "image/png");
-  const imageUrl = URL.createObjectURL(pngBlob);
+  const shared = await shareImageFile(pngBlob, normalizedFileName);
 
-  try {
-    await wait(DOWNLOAD_START_DELAY_MS);
-    clickDownloadLink(imageUrl, normalizedFileName);
-  } finally {
-    window.setTimeout(() => {
-      URL.revokeObjectURL(imageUrl);
-    }, OBJECT_URL_REVOKE_DELAY_MS);
+  if (shared) {
+    return;
   }
+
+  downloadBlob(pngBlob, normalizedFileName);
 };

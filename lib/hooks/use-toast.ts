@@ -7,6 +7,7 @@ export interface Toast {
   title?: string;
   description?: string;
   variant?: ToastVariant;
+  duration?: number;
 }
 
 let toastCount = 0;
@@ -24,7 +25,7 @@ export function useToast() {
     // 自動削除（3秒後）
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 3000);
+    }, toast.duration ?? 3000);
 
     return id;
   }, []);

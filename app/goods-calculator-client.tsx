@@ -19,6 +19,14 @@ import {
 } from "@/components/ExportListImage";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { downloadBlob } from "@/utils/blobDownload";
 import { renderElementAsImageBlob } from "@/utils/imageExport";
 import {
@@ -65,6 +73,7 @@ type Props = {
 };
 
 const IMAGE_RENDER_TIMEOUT_MS = 15000;
+const TOAST_DURATION_MS = 2500;
 
 function formatYen(value: number) {
   return `¥${value.toLocaleString("ja-JP")}`;
@@ -146,6 +155,9 @@ export function GoodsCalculatorClient({
   const [hasLoadedStorage, setHasLoadedStorage] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
   const [isSavingImage, setIsSavingImage] = useState(false);
+  const [isListNameDialogOpen, setIsListNameDialogOpen] = useState(false);
+  const [listNameInput, setListNameInput] = useState("");
+  const [listNameError, setListNameError] = useState<string | null>(null);
 
   const goodsById = useMemo(
     () => new Map(goods.map((good) => [good.goods_id, good])),
@@ -302,32 +314,14 @@ export function GoodsCalculatorClient({
     return () => window.clearTimeout(timeoutId);
   }, [event.event_id, hasLoadedStorage, quantities, toast]);
 
-  const saveShoppingList = (forceNew: boolean) => {
-    const { data: lists } = loadShoppingLists();
-    const existing =
-      !forceNew && currentListId
-        ? lists.find((list) => list.id === currentListId) ?? null
-        : null;
-    const shouldAskListName = forceNew || !existing;
-    const defaultName = existing?.name ?? currentListName;
-    const trimmedName = shouldAskListName
-      ? window
-          .prompt("買い物リスト名を入力してください。", defaultName)
-          ?.trim()
-      : currentListName.trim();
-
-    if (!trimmedName) {
-      toast({
-        title: "保存を中止しました",
-        description: "買い物リスト名を入力してください。",
-      });
-      return;
-    }
-
+  const persistShoppingList = (
+    listName: string,
+    existing: LocalShoppingList | null
+  ) => {
     const nextId = existing?.id ?? createLocalId();
     const nextList = createListPayload({
       id: nextId,
-      name: trimmedName,
+      name: listName,
       eventId: event.event_id,
       quantities,
       existing,
@@ -341,11 +335,11 @@ export function GoodsCalculatorClient({
         description: error,
         variant: "destructive",
       });
-      return;
+      return false;
     }
 
     setCurrentListId(nextId);
-    setCurrentListName(trimmedName);
+    setCurrentListName(listName);
     saveGoodsDraft(event.event_id, quantities);
     router.replace(
       `/goods-calculator?event_id=${encodeURIComponent(
@@ -353,8 +347,56 @@ export function GoodsCalculatorClient({
       )}&list_id=${encodeURIComponent(nextId)}`
     );
     toast({
-      title: existing ? "買い物リストを更新しました" : "買い物リストを保存しました",
+      title: existing ? "更新しました！" : "保存しました！",
+      duration: TOAST_DURATION_MS,
     });
+    return true;
+  };
+
+  const openListNameDialog = (defaultName: string) => {
+    setListNameInput(defaultName);
+    setListNameError(null);
+    setIsListNameDialogOpen(true);
+  };
+
+  const saveShoppingList = (forceNew: boolean) => {
+    const { data: lists } = loadShoppingLists();
+    const existing =
+      !forceNew && currentListId
+        ? lists.find((list) => list.id === currentListId) ?? null
+        : null;
+    const defaultName = existing?.name ?? currentListName;
+
+    if (existing) {
+      persistShoppingList(currentListName, existing);
+      return;
+    }
+
+    openListNameDialog(defaultName);
+  };
+
+  const handleListNameDialogOpenChange = (open: boolean) => {
+    setIsListNameDialogOpen(open);
+
+    if (!open) {
+      setListNameError(null);
+    }
+  };
+
+  const handleListNameDialogSave = () => {
+    const trimmedName = listNameInput.trim();
+
+    if (!trimmedName) {
+      setListNameError("買い物リスト名を入力してください。");
+      return;
+    }
+
+    const saved = persistShoppingList(trimmedName, null);
+
+    if (saved) {
+      setIsListNameDialogOpen(false);
+      setListNameError(null);
+    }
   };
 
   const handleResetData = () => {
@@ -717,6 +759,55 @@ export function GoodsCalculatorClient({
           />
         </CardContent>
       </Card>
+
+      <Dialog
+        open={isListNameDialogOpen}
+        onOpenChange={handleListNameDialogOpenChange}
+      >
+        <DialogContent>
+          <form
+            className="space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              handleListNameDialogSave();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>買い物リストを保存</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-2">
+              <label
+                htmlFor="shopping-list-name"
+                className="text-sm font-medium text-slate-700"
+              >
+                リスト名
+              </label>
+              <Input
+                id="shopping-list-name"
+                value={listNameInput}
+                aria-invalid={Boolean(listNameError)}
+                onChange={(event) => {
+                  setListNameInput(event.target.value);
+                  if (listNameError) setListNameError(null);
+                }}
+              />
+              {listNameError ? (
+                <div className="text-sm text-rose-600">{listNameError}</div>
+              ) : null}
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => handleListNameDialogOpenChange(false)}
+              >
+                キャンセル
+              </Button>
+              <Button type="submit">保存する</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

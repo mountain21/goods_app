@@ -11,7 +11,7 @@ import {
   ListChecks,
   RotateCcw,
 } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
 import {
   ExportListImage,
@@ -20,12 +20,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { downloadBlob } from "@/utils/blobDownload";
-import {
-  renderElementAsImageBlob,
-  type ImageExportDebugStep,
-  type ImageExportImageStatus,
-} from "@/utils/imageExport";
-import { handleImageSave } from "@/utils/imageSaver";
+import { renderElementAsImageBlob } from "@/utils/imageExport";
 import {
   clearGoodsDraft,
   createDraftData,
@@ -69,34 +64,6 @@ type Props = {
   initialListId?: string | null;
 };
 
-type GeneratedImageDebug = {
-  functionName?: string;
-  type?: string;
-  size?: number;
-  sizeMb?: number;
-  signature?: string;
-  lastStep:
-    | "start"
-    | ImageExportDebugStep
-    | "download-start"
-    | "download-triggered"
-    | "error"
-    | "timeout";
-  elapsedMs?: number;
-  targetWidth?: number;
-  targetHeight?: number;
-  outputWidth?: number;
-  outputHeight?: number;
-  pixelRatio?: number;
-  renderElapsedMs?: number;
-  imageCount?: number;
-  incompleteImageCount?: number;
-  images?: ImageExportImageStatus[];
-  downloadTriggered: boolean;
-  error?: string;
-};
-
-const PNG_SIGNATURE = "89 50 4e 47 0d 0a 1a 0a";
 const IMAGE_RENDER_TIMEOUT_MS = 15000;
 
 function formatYen(value: number) {
@@ -166,12 +133,8 @@ export function GoodsCalculatorClient({
   initialListId,
 }: Props) {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { toast } = useToast();
   const importInputRef = useRef<HTMLInputElement | null>(null);
-  const debugPngBlobRef = useRef<Blob | null>(null);
-  const showImageDownloadDebug =
-    searchParams.get("debug_image_download") === "1";
 
   const [currentListId, setCurrentListId] = useState<string | null>(
     initialListId ?? null
@@ -183,9 +146,6 @@ export function GoodsCalculatorClient({
   const [hasLoadedStorage, setHasLoadedStorage] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
   const [isSavingImage, setIsSavingImage] = useState(false);
-  const [isDebugPngReady, setIsDebugPngReady] = useState(false);
-  const [generatedImageDebug, setGeneratedImageDebug] =
-    useState<GeneratedImageDebug | null>(null);
 
   const goodsById = useMemo(
     () => new Map(goods.map((good) => [good.goods_id, good])),
@@ -342,46 +302,6 @@ export function GoodsCalculatorClient({
     return () => window.clearTimeout(timeoutId);
   }, [event.event_id, hasLoadedStorage, quantities, toast]);
 
-  useEffect(() => {
-    if (!showImageDownloadDebug) return;
-
-    let cancelled = false;
-
-    void fetch("/debug/test-download.png", {
-      cache: "no-store",
-    })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`固定PNGの取得に失敗しました: ${response.status}`);
-        }
-
-        return response.blob();
-      })
-      .then(async (blob) => {
-        const signature = new Uint8Array(await blob.slice(0, 8).arrayBuffer());
-
-        console.debug("[fixed-png-debug]", {
-          type: blob.type,
-          size: blob.size,
-          signature: Array.from(signature)
-            .map((value) => value.toString(16).padStart(2, "0"))
-            .join(" "),
-        });
-
-        if (!cancelled) {
-          debugPngBlobRef.current = blob;
-          setIsDebugPngReady(true);
-        }
-      })
-      .catch((error) => {
-        console.error("[fixed-png-debug] preload failed", error);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [showImageDownloadDebug]);
-
   const saveShoppingList = (forceNew: boolean) => {
     const { data: lists } = loadShoppingLists();
     const existing =
@@ -416,7 +336,11 @@ export function GoodsCalculatorClient({
     setStorageError(error);
 
     if (error) {
-      toast({ title: "保存に失敗しました", description: error, variant: "destructive" });
+      toast({
+        title: "保存に失敗しました",
+        description: error,
+        variant: "destructive",
+      });
       return;
     }
 
@@ -444,7 +368,11 @@ export function GoodsCalculatorClient({
     setStorageError(error);
 
     if (error) {
-      toast({ title: "初期化に失敗しました", description: error, variant: "destructive" });
+      toast({
+        title: "初期化に失敗しました",
+        description: error,
+        variant: "destructive",
+      });
       return;
     }
 
@@ -515,145 +443,33 @@ export function GoodsCalculatorClient({
 
     setIsSavingImage(true);
 
-    let shouldAcceptDebugSteps = true;
-
     try {
-      const renderStartedAt = performance.now();
+      const { blob, fileName } = await withTimeout(
+        renderElementAsImageBlob(
+          exportImageData,
+          <ExportListImage data={exportImageData} />
+        ),
+        IMAGE_RENDER_TIMEOUT_MS,
+        "画像生成がタイムアウトしました。"
+      );
 
-      if (showImageDownloadDebug) {
-        setGeneratedImageDebug({
-          lastStep: "start",
-          elapsedMs: 0,
-          downloadTriggered: false,
-        });
-      }
-
-      const updateDebugStep = (
-        lastStep: GeneratedImageDebug["lastStep"],
-        info?: Record<string, unknown>
-      ) => {
-        if (!showImageDownloadDebug || !shouldAcceptDebugSteps) return;
-
-        setGeneratedImageDebug((current) => ({
-          ...(current ?? {
-            downloadTriggered: false,
-            lastStep,
-          }),
-          ...(info as Partial<GeneratedImageDebug> | undefined),
-          lastStep,
-          elapsedMs: Math.round(performance.now() - renderStartedAt),
-        }));
-      };
-
-      const { blob, fileName, outputWidth, outputHeight, pixelRatio } =
-        await withTimeout(
-          renderElementAsImageBlob(
-            exportImageData,
-            <ExportListImage data={exportImageData} />,
-            {
-              excludeExternalImages: showImageDownloadDebug,
-              onDebugStep: updateDebugStep,
-              pixelRatio: showImageDownloadDebug ? 1 : undefined,
-            }
-          ),
-          IMAGE_RENDER_TIMEOUT_MS,
-          "画像生成がタイムアウトしました。"
-        );
-
-      if (showImageDownloadDebug) {
-        const signature = new Uint8Array(
-          await blob.slice(0, 8).arrayBuffer()
-        );
-        const debugInfo: GeneratedImageDebug = {
-          type: blob.type,
-          size: blob.size,
-          sizeMb: Number((blob.size / 1024 / 1024).toFixed(2)),
-          signature: Array.from(signature)
-          .map((value) => value.toString(16).padStart(2, "0"))
-            .join(" "),
-          renderElapsedMs: Math.round(performance.now() - renderStartedAt),
-          outputWidth,
-          outputHeight,
-          pixelRatio,
-          downloadTriggered: false,
-          lastStep: "blob-created",
-          elapsedMs: Math.round(performance.now() - renderStartedAt),
-        };
-
-        if (blob.size === 0) {
-          throw new Error("生成されたPNG Blobが空です。");
-        }
-
-        if (blob.type !== "image/png") {
-          throw new Error(
-            `生成されたBlobのMIMEタイプが不正です: ${blob.type}`
-          );
-        }
-
-        if (debugInfo.signature !== PNG_SIGNATURE) {
-          setGeneratedImageDebug({
-            ...debugInfo,
-            error: `PNGシグネチャが不正です: ${debugInfo.signature}`,
-          });
-          return;
-        }
-
-        setGeneratedImageDebug({
-          ...debugInfo,
-          lastStep: "download-start",
-        });
-        console.debug("[generated-image-debug]", {
-          ...debugInfo,
-          lastStep: "download-triggered",
-          downloadTriggered: true,
-        });
-
-        downloadBlob(blob, fileName);
-        setGeneratedImageDebug({
-          ...debugInfo,
-          lastStep: "download-triggered",
-          elapsedMs: Math.round(performance.now() - renderStartedAt),
-          downloadTriggered: true,
-        });
-        return;
-      }
-
-      await handleImageSave(blob, fileName);
+      downloadBlob(blob, fileName);
     } catch (error) {
       console.error("保存失敗:", error);
-      if (showImageDownloadDebug) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        shouldAcceptDebugSteps = false;
-        setGeneratedImageDebug((current) => ({
-          ...(current ?? { downloadTriggered: false, lastStep: "error" }),
-          downloadTriggered: false,
-          lastStep:
-            errorMessage === "画像生成がタイムアウトしました。"
-              ? "timeout"
-              : "error",
-          error: errorMessage,
-        }));
-      }
+      const isTimeout =
+        error instanceof Error &&
+        error.message === "画像生成がタイムアウトしました。";
+
       toast({
         title: "画像保存に失敗しました",
-        description: "通信環境やブラウザ設定を確認してください。",
+        description: isTimeout
+          ? "画像の生成に時間がかかっています。もう一度お試しください。"
+          : "通信環境やブラウザ設定を確認してください。",
         variant: "destructive",
       });
     } finally {
-      shouldAcceptDebugSteps = false;
       setIsSavingImage(false);
     }
-  };
-
-  const handlePreparedBlobDownload = () => {
-    const blob = debugPngBlobRef.current;
-
-    if (!blob) {
-      console.error("[fixed-png-debug] PNG is not ready");
-      return;
-    }
-
-    downloadBlob(blob, "test-download.png");
   };
 
   return (
@@ -897,40 +713,6 @@ export function GoodsCalculatorClient({
           />
         </CardContent>
       </Card>
-
-      {showImageDownloadDebug && generatedImageDebug ? (
-        <Card className="border-amber-200 bg-amber-50">
-          <CardContent className="space-y-2 p-3">
-            <div className="text-sm font-medium text-amber-900">
-              生成画像デバッグ
-            </div>
-            <pre className="whitespace-pre-wrap rounded border border-amber-200 bg-white p-3 text-xs text-slate-800">
-              {JSON.stringify(generatedImageDebug, null, 2)}
-            </pre>
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {showImageDownloadDebug ? (
-        <Card className="border-amber-200 bg-amber-50">
-          <CardContent className="space-y-3 p-3">
-            <div className="text-sm font-medium text-amber-900">
-              画像保存テスト
-            </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={handlePreparedBlobDownload}
-                disabled={!isDebugPngReady}
-              >
-                固定PNG Blob
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      ) : null}
     </div>
   );
 }

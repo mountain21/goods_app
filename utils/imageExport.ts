@@ -2,34 +2,11 @@ import type { ReactElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import type { ExportListImageData } from "@/components/ExportListImage";
-import { handleImageSave } from "@/utils/imageSaver";
+import { downloadBlob } from "@/utils/blobDownload";
 
 const EXPORT_IMAGE_WIDTH = 720;
 
-export type ImageExportDebugStep =
-  | "waiting-fonts"
-  | "fonts-ready"
-  | "collecting-images"
-  | "images-ready"
-  | "render-start"
-  | "render-complete"
-  | "blob-created";
-
-export type ImageExportImageStatus = {
-  src: string;
-  complete: boolean;
-  naturalWidth: number;
-  naturalHeight: number;
-  crossOrigin: string | null;
-  loadStatus: "loaded" | "error" | "timeout" | "empty-src";
-};
-
 type RenderElementAsImageBlobOptions = {
-  excludeExternalImages?: boolean;
-  onDebugStep?: (
-    step: ImageExportDebugStep,
-    info?: Record<string, unknown>
-  ) => void;
   pixelRatio?: number;
 };
 
@@ -112,51 +89,22 @@ async function waitForFonts(timeoutMs: number) {
   await withTimeout(fonts.ready.then(() => undefined), timeoutMs, undefined);
 }
 
-function isExternalImage(image: HTMLImageElement) {
-  const src = image.currentSrc || image.src;
-
-  if (!src) return false;
-
-  try {
-    return new URL(src, window.location.href).origin !== window.location.origin;
-  } catch {
-    return true;
-  }
-}
-
-function getImageStatus(
-  image: HTMLImageElement,
-  loadStatus: ImageExportImageStatus["loadStatus"]
-): ImageExportImageStatus {
-  return {
-    src: image.currentSrc || image.src,
-    complete: image.complete,
-    naturalWidth: image.naturalWidth,
-    naturalHeight: image.naturalHeight,
-    crossOrigin: image.crossOrigin,
-    loadStatus,
-  };
-}
-
 async function waitForImage(
   image: HTMLImageElement,
   timeoutMs: number
-): Promise<ImageExportImageStatus> {
+): Promise<void> {
   if (!image.currentSrc && !image.src) {
-    return getImageStatus(image, "empty-src");
+    return;
   }
 
   if (image.complete) {
-    return getImageStatus(
-      image,
-      image.naturalWidth > 0 && image.naturalHeight > 0 ? "loaded" : "error"
-    );
+    return;
   }
 
   return new Promise((resolve) => {
     const timeoutId = window.setTimeout(() => {
       cleanup();
-      resolve(getImageStatus(image, "timeout"));
+      resolve();
     }, timeoutMs);
 
     const cleanup = () => {
@@ -167,12 +115,12 @@ async function waitForImage(
 
     const handleLoad = () => {
       cleanup();
-      resolve(getImageStatus(image, "loaded"));
+      resolve();
     };
 
     const handleError = () => {
       cleanup();
-      resolve(getImageStatus(image, "error"));
+      resolve();
     };
 
     image.addEventListener("load", handleLoad, { once: true });
@@ -180,13 +128,13 @@ async function waitForImage(
   });
 }
 
-async function collectImageStatuses(
+async function waitForImages(
   target: HTMLElement,
   timeoutMs: number
-): Promise<ImageExportImageStatus[]> {
+): Promise<void> {
   const images = Array.from(target.querySelectorAll<HTMLImageElement>("img"));
 
-  return Promise.all(images.map((image) => waitForImage(image, timeoutMs)));
+  await Promise.all(images.map((image) => waitForImage(image, timeoutMs)));
 }
 
 export async function downloadElementAsImage(
@@ -195,7 +143,7 @@ export async function downloadElementAsImage(
 ) {
   const { blob, fileName } = await renderElementAsImageBlob(data, element);
 
-  await handleImageSave(blob, fileName);
+  downloadBlob(blob, fileName);
 }
 
 export async function renderElementAsImageBlob(
@@ -227,38 +175,14 @@ export async function renderElementAsImageBlob(
       root.render(element);
     });
 
-    options.onDebugStep?.("waiting-fonts");
     await waitForFonts(3000);
-    options.onDebugStep?.("fonts-ready");
 
     await new Promise((resolve) => window.requestAnimationFrame(resolve));
     await new Promise((resolve) => window.setTimeout(resolve, 100));
 
-    options.onDebugStep?.("collecting-images");
-    const imageStatus = await collectImageStatuses(host, 3000);
-    const incompleteImageCount = imageStatus.filter(
-      (image) =>
-        !image.complete ||
-        image.naturalWidth === 0 ||
-        image.naturalHeight === 0 ||
-        image.loadStatus !== "loaded"
-    ).length;
-    options.onDebugStep?.("images-ready", {
-      imageCount: imageStatus.length,
-      incompleteImageCount,
-      images: imageStatus,
-    });
+    await waitForImages(host, 3000);
 
     const captureHeight = Math.ceil(host.scrollHeight || host.offsetHeight);
-
-    options.onDebugStep?.("render-start", {
-      functionName: "html2canvas",
-      targetWidth: EXPORT_IMAGE_WIDTH,
-      targetHeight: captureHeight,
-      imageCount: imageStatus.length,
-      incompleteImageCount,
-      pixelRatio,
-    });
 
     const canvas = await html2canvas(host, {
       allowTaint: false,
@@ -266,12 +190,7 @@ export async function renderElementAsImageBlob(
       foreignObjectRendering: false,
       height: captureHeight,
       ignoreElements: (target) =>
-        target.hasAttribute("data-html2canvas-ignore") ||
-        Boolean(
-          options.excludeExternalImages &&
-          target instanceof HTMLImageElement &&
-            isExternalImage(target)
-        ),
+        target.hasAttribute("data-html2canvas-ignore"),
       imageTimeout: 15000,
       logging: false,
       onclone: (clonedDocument) => {
@@ -292,10 +211,6 @@ export async function renderElementAsImageBlob(
         "RENDER_FAILED",
         error
       );
-    });
-    options.onDebugStep?.("render-complete", {
-      outputWidth: canvas.width,
-      outputHeight: canvas.height,
     });
 
     const blob = await new Promise<Blob>((resolve, reject) => {
@@ -323,11 +238,6 @@ export async function renderElementAsImageBlob(
         );
       }
     });
-    options.onDebugStep?.("blob-created", {
-      type: blob.type,
-      size: blob.size,
-      sizeMb: Number((blob.size / 1024 / 1024).toFixed(2)),
-    });
 
     return {
       blob,
@@ -343,5 +253,5 @@ export async function renderElementAsImageBlob(
 }
 
 export function downloadImageBlob(blob: Blob, fileName: string) {
-  return handleImageSave(blob, fileName);
+  downloadBlob(blob, fileName);
 }

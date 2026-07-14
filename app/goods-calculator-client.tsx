@@ -64,11 +64,6 @@ type Props = {
   initialListId?: string | null;
 };
 
-type GeneratedImage = {
-  blob: Blob;
-  fileName: string;
-};
-
 const IMAGE_RENDER_TIMEOUT_MS = 15000;
 
 function formatYen(value: number) {
@@ -151,9 +146,6 @@ export function GoodsCalculatorClient({
   const [hasLoadedStorage, setHasLoadedStorage] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
   const [isSavingImage, setIsSavingImage] = useState(false);
-  const [generatedImage, setGeneratedImage] = useState<GeneratedImage | null>(
-    null
-  );
 
   const goodsById = useMemo(
     () => new Map(goods.map((good) => [good.goods_id, good])),
@@ -243,14 +235,6 @@ export function GoodsCalculatorClient({
     totals.totalAmount,
     totals.totalItems,
   ]);
-
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      setGeneratedImage(null);
-    }, 0);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [exportImageData]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -454,11 +438,10 @@ export function GoodsCalculatorClient({
     }
   };
 
-  const handleCreateImageClick = async () => {
+  const handleImageSaveClick = async () => {
     if (isSavingImage) return;
 
     setIsSavingImage(true);
-    setGeneratedImage(null);
 
     try {
       const { blob, fileName } = await withTimeout(
@@ -470,11 +453,7 @@ export function GoodsCalculatorClient({
         "画像生成がタイムアウトしました。"
       );
 
-      setGeneratedImage({ blob, fileName });
-      toast({
-        title: "画像を作成しました",
-        description: "「画像を保存」を押してください。",
-      });
+      downloadBlob(blob, fileName);
     } catch (error) {
       console.error("保存失敗:", error);
       const isTimeout =
@@ -485,22 +464,12 @@ export function GoodsCalculatorClient({
         title: "画像保存に失敗しました",
         description: isTimeout
           ? "画像の生成に時間がかかっています。もう一度お試しください。"
-          : "画像の作成に失敗しました。",
+          : "通信環境やブラウザ設定を確認してください。",
         variant: "destructive",
       });
-      setGeneratedImage(null);
     } finally {
       setIsSavingImage(false);
     }
-  };
-
-  const handleImageActionClick = () => {
-    if (generatedImage) {
-      downloadBlob(generatedImage.blob, generatedImage.fileName);
-      return;
-    }
-
-    void handleCreateImageClick();
   };
 
   return (
@@ -675,15 +644,11 @@ export function GoodsCalculatorClient({
                 variant="outline"
                 data-html2canvas-ignore="true"
                 className="h-11 w-full text-base font-semibold sm:w-auto"
-                onClick={handleImageActionClick}
+                onClick={() => void handleImageSaveClick()}
                 disabled={isSavingImage}
               >
                 <Download className="h-4 w-4" />
-                {isSavingImage
-                  ? "画像作成中..."
-                  : generatedImage
-                    ? "画像を保存"
-                    : "画像を作成"}
+                {isSavingImage ? "画像保存中..." : "画像を保存"}
               </Button>
               {currentListId ? (
                 <Button

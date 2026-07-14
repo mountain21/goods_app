@@ -284,9 +284,13 @@ export function GoodsCalculatorClient({
       !forceNew && currentListId
         ? lists.find((list) => list.id === currentListId) ?? null
         : null;
+    const shouldAskListName = forceNew || !existing;
     const defaultName = existing?.name ?? currentListName;
-    const name = window.prompt("買い物リスト名を入力してください。", defaultName);
-    const trimmedName = name?.trim();
+    const trimmedName = shouldAskListName
+      ? window
+          .prompt("買い物リスト名を入力してください。", defaultName)
+          ?.trim()
+      : currentListName.trim();
 
     if (!trimmedName) {
       toast({

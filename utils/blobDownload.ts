@@ -1,4 +1,4 @@
-const OBJECT_URL_REVOKE_DELAY_MS = 1000;
+const OBJECT_URL_REVOKE_DELAY_MS = 10000;
 
 export function downloadBlob(blob: Blob, fileName: string) {
   if (typeof window === "undefined" || typeof document === "undefined") {

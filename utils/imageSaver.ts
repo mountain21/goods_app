@@ -7,8 +7,8 @@ function normalizePngFileName(fileName: string) {
   return /\.png$/i.test(safeName) ? safeName : `${safeName}.png`;
 }
 
-async function createDownloadableImageBlob(pngBlob: Blob) {
-  return new Blob([await pngBlob.arrayBuffer()], {
+function createDownloadableImageBlob(pngBlob: Blob) {
+  return new Blob([pngBlob], {
     type: "application/octet-stream",
   });
 }
@@ -21,17 +21,7 @@ export const handleImageSave = async (blob: Blob, fileName: string) => {
   const normalizedFileName = normalizePngFileName(fileName);
   const pngBlob =
     blob.type === "image/png" ? blob : blob.slice(0, blob.size, "image/png");
-  const downloadableBlob = await createDownloadableImageBlob(pngBlob);
-
-  if (process.env.NODE_ENV !== "production") {
-    console.debug("[image-download]", {
-      originalType: pngBlob.type,
-      originalSize: pngBlob.size,
-      downloadType: downloadableBlob.type,
-      downloadSize: downloadableBlob.size,
-      fileName: normalizedFileName,
-    });
-  }
+  const downloadableBlob = createDownloadableImageBlob(pngBlob);
 
   downloadBlob(downloadableBlob, normalizedFileName);
 };

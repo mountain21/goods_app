@@ -65,6 +65,10 @@ type Props = {
   initialListId?: string | null;
 };
 
+const IS_DEV = process.env.NODE_ENV !== "production";
+const TEST_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
+
 function formatYen(value: number) {
   return `¥${value.toLocaleString("ja-JP")}`;
 }
@@ -75,6 +79,19 @@ function qKey(goodsId: string, variantId: string | null) {
 
 function getDefaultListName(eventName: string) {
   return `${eventName || "イベント"} 買い物リスト`;
+}
+
+function createPreparedTestPngBlob() {
+  if (typeof atob === "undefined") return null;
+
+  const binary = atob(TEST_PNG_BASE64);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return new Blob([bytes], { type: "image/png" });
 }
 
 function createListPayload({
@@ -122,6 +139,7 @@ export function GoodsCalculatorClient({
   const [hasLoadedStorage, setHasLoadedStorage] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
   const [isSavingImage, setIsSavingImage] = useState(false);
+  const [preparedTestBlob, setPreparedTestBlob] = useState<Blob | null>(null);
 
   const goodsById = useMemo(
     () => new Map(goods.map((good) => [good.goods_id, good])),
@@ -278,6 +296,16 @@ export function GoodsCalculatorClient({
     return () => window.clearTimeout(timeoutId);
   }, [event.event_id, hasLoadedStorage, quantities, toast]);
 
+  useEffect(() => {
+    if (!IS_DEV) return;
+
+    const timeoutId = window.setTimeout(() => {
+      setPreparedTestBlob(createPreparedTestPngBlob());
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, []);
+
   const saveShoppingList = (forceNew: boolean) => {
     const { data: lists } = loadShoppingLists();
     const existing =
@@ -428,6 +456,12 @@ export function GoodsCalculatorClient({
     } finally {
       setIsSavingImage(false);
     }
+  };
+
+  const handlePreparedBlobDownload = () => {
+    if (!preparedTestBlob) return;
+
+    downloadBlob(preparedTestBlob, "test-download.png");
   };
 
   return (
@@ -671,6 +705,27 @@ export function GoodsCalculatorClient({
           />
         </CardContent>
       </Card>
+
+      {IS_DEV ? (
+        <Card className="border-amber-200 bg-amber-50">
+          <CardContent className="space-y-3 p-3">
+            <div className="text-sm font-medium text-amber-900">
+              画像保存テスト
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={handlePreparedBlobDownload}
+                disabled={!preparedTestBlob}
+              >
+                固定PNG Blob
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }

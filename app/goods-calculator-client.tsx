@@ -20,7 +20,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { downloadBlob } from "@/utils/blobDownload";
-import { renderElementAsImageBlob } from "@/utils/imageExport";
+import {
+  renderElementAsImageBlob,
+  type ImageExportDebugStep,
+  type ImageExportImageStatus,
+} from "@/utils/imageExport";
 import { handleImageSave } from "@/utils/imageSaver";
 import {
   clearGoodsDraft,
@@ -66,19 +70,34 @@ type Props = {
 };
 
 type GeneratedImageDebug = {
+  functionName?: string;
   type?: string;
   size?: number;
   sizeMb?: number;
   signature?: string;
+  lastStep:
+    | "start"
+    | ImageExportDebugStep
+    | "download-start"
+    | "download-triggered"
+    | "error"
+    | "timeout";
+  elapsedMs?: number;
+  targetWidth?: number;
+  targetHeight?: number;
   outputWidth?: number;
   outputHeight?: number;
   pixelRatio?: number;
   renderElapsedMs?: number;
+  imageCount?: number;
+  incompleteImageCount?: number;
+  images?: ImageExportImageStatus[];
   downloadTriggered: boolean;
   error?: string;
 };
 
 const PNG_SIGNATURE = "89 50 4e 47 0d 0a 1a 0a";
+const IMAGE_RENDER_TIMEOUT_MS = 15000;
 
 function formatYen(value: number) {
   return `¥${value.toLocaleString("ja-JP")}`;
@@ -90,6 +109,29 @@ function qKey(goodsId: string, variantId: string | null) {
 
 function getDefaultListName(eventName: string) {
   return `${eventName || "イベント"} 買い物リスト`;
+}
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      reject(new Error(message));
+    }, timeoutMs);
+
+    promise.then(
+      (value) => {
+        window.clearTimeout(timeoutId);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timeoutId);
+        reject(error);
+      }
+    );
+  });
 }
 
 function createListPayload({
@@ -473,20 +515,50 @@ export function GoodsCalculatorClient({
 
     setIsSavingImage(true);
 
+    let shouldAcceptDebugSteps = true;
+
     try {
+      const renderStartedAt = performance.now();
+
       if (showImageDownloadDebug) {
-        setGeneratedImageDebug(null);
+        setGeneratedImageDebug({
+          lastStep: "start",
+          elapsedMs: 0,
+          downloadTriggered: false,
+        });
       }
 
-      const renderStartedAt = performance.now();
+      const updateDebugStep = (
+        lastStep: GeneratedImageDebug["lastStep"],
+        info?: Record<string, unknown>
+      ) => {
+        if (!showImageDownloadDebug || !shouldAcceptDebugSteps) return;
+
+        setGeneratedImageDebug((current) => ({
+          ...(current ?? {
+            downloadTriggered: false,
+            lastStep,
+          }),
+          ...(info as Partial<GeneratedImageDebug> | undefined),
+          lastStep,
+          elapsedMs: Math.round(performance.now() - renderStartedAt),
+        }));
+      };
+
       const { blob, fileName, outputWidth, outputHeight, pixelRatio } =
-        await renderElementAsImageBlob(
-        exportImageData,
-        <ExportListImage data={exportImageData} />,
-        {
-          pixelRatio: showImageDownloadDebug ? 1 : undefined,
-        }
-      );
+        await withTimeout(
+          renderElementAsImageBlob(
+            exportImageData,
+            <ExportListImage data={exportImageData} />,
+            {
+              excludeExternalImages: showImageDownloadDebug,
+              onDebugStep: updateDebugStep,
+              pixelRatio: showImageDownloadDebug ? 1 : undefined,
+            }
+          ),
+          IMAGE_RENDER_TIMEOUT_MS,
+          "画像生成がタイムアウトしました。"
+        );
 
       if (showImageDownloadDebug) {
         const signature = new Uint8Array(
@@ -504,6 +576,8 @@ export function GoodsCalculatorClient({
           outputHeight,
           pixelRatio,
           downloadTriggered: false,
+          lastStep: "blob-created",
+          elapsedMs: Math.round(performance.now() - renderStartedAt),
         };
 
         if (blob.size === 0) {
@@ -524,14 +598,21 @@ export function GoodsCalculatorClient({
           return;
         }
 
+        setGeneratedImageDebug({
+          ...debugInfo,
+          lastStep: "download-start",
+        });
         console.debug("[generated-image-debug]", {
           ...debugInfo,
+          lastStep: "download-triggered",
           downloadTriggered: true,
         });
 
         downloadBlob(blob, fileName);
         setGeneratedImageDebug({
           ...debugInfo,
+          lastStep: "download-triggered",
+          elapsedMs: Math.round(performance.now() - renderStartedAt),
           downloadTriggered: true,
         });
         return;
@@ -541,10 +622,16 @@ export function GoodsCalculatorClient({
     } catch (error) {
       console.error("保存失敗:", error);
       if (showImageDownloadDebug) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        shouldAcceptDebugSteps = false;
         setGeneratedImageDebug((current) => ({
-          ...(current ?? { downloadTriggered: false }),
+          ...(current ?? { downloadTriggered: false, lastStep: "error" }),
           downloadTriggered: false,
-          error: error instanceof Error ? error.message : String(error),
+          lastStep:
+            errorMessage === "画像生成がタイムアウトしました。"
+              ? "timeout"
+              : "error",
+          error: errorMessage,
         }));
       }
       toast({
@@ -553,6 +640,7 @@ export function GoodsCalculatorClient({
         variant: "destructive",
       });
     } finally {
+      shouldAcceptDebugSteps = false;
       setIsSavingImage(false);
     }
   };

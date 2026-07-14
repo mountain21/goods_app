@@ -6,7 +6,30 @@ import { handleImageSave } from "@/utils/imageSaver";
 
 const EXPORT_IMAGE_WIDTH = 720;
 
+export type ImageExportDebugStep =
+  | "waiting-fonts"
+  | "fonts-ready"
+  | "collecting-images"
+  | "images-ready"
+  | "render-start"
+  | "render-complete"
+  | "blob-created";
+
+export type ImageExportImageStatus = {
+  src: string;
+  complete: boolean;
+  naturalWidth: number;
+  naturalHeight: number;
+  crossOrigin: string | null;
+  loadStatus: "loaded" | "error" | "timeout" | "empty-src";
+};
+
 type RenderElementAsImageBlobOptions = {
+  excludeExternalImages?: boolean;
+  onDebugStep?: (
+    step: ImageExportDebugStep,
+    info?: Record<string, unknown>
+  ) => void;
   pixelRatio?: number;
 };
 
@@ -68,6 +91,104 @@ function getCanvasScale() {
   return /iPhone|iPad|iPod/.test(navigator.userAgent) ? 0.8 : 1;
 }
 
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  fallback: T
+): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((resolve) => {
+      window.setTimeout(() => resolve(fallback), timeoutMs);
+    }),
+  ]);
+}
+
+async function waitForFonts(timeoutMs: number) {
+  const fonts = document.fonts;
+
+  if (!fonts?.ready) return;
+
+  await withTimeout(fonts.ready.then(() => undefined), timeoutMs, undefined);
+}
+
+function isExternalImage(image: HTMLImageElement) {
+  const src = image.currentSrc || image.src;
+
+  if (!src) return false;
+
+  try {
+    return new URL(src, window.location.href).origin !== window.location.origin;
+  } catch {
+    return true;
+  }
+}
+
+function getImageStatus(
+  image: HTMLImageElement,
+  loadStatus: ImageExportImageStatus["loadStatus"]
+): ImageExportImageStatus {
+  return {
+    src: image.currentSrc || image.src,
+    complete: image.complete,
+    naturalWidth: image.naturalWidth,
+    naturalHeight: image.naturalHeight,
+    crossOrigin: image.crossOrigin,
+    loadStatus,
+  };
+}
+
+async function waitForImage(
+  image: HTMLImageElement,
+  timeoutMs: number
+): Promise<ImageExportImageStatus> {
+  if (!image.currentSrc && !image.src) {
+    return getImageStatus(image, "empty-src");
+  }
+
+  if (image.complete) {
+    return getImageStatus(
+      image,
+      image.naturalWidth > 0 && image.naturalHeight > 0 ? "loaded" : "error"
+    );
+  }
+
+  return new Promise((resolve) => {
+    const timeoutId = window.setTimeout(() => {
+      cleanup();
+      resolve(getImageStatus(image, "timeout"));
+    }, timeoutMs);
+
+    const cleanup = () => {
+      window.clearTimeout(timeoutId);
+      image.removeEventListener("load", handleLoad);
+      image.removeEventListener("error", handleError);
+    };
+
+    const handleLoad = () => {
+      cleanup();
+      resolve(getImageStatus(image, "loaded"));
+    };
+
+    const handleError = () => {
+      cleanup();
+      resolve(getImageStatus(image, "error"));
+    };
+
+    image.addEventListener("load", handleLoad, { once: true });
+    image.addEventListener("error", handleError, { once: true });
+  });
+}
+
+async function collectImageStatuses(
+  target: HTMLElement,
+  timeoutMs: number
+): Promise<ImageExportImageStatus[]> {
+  const images = Array.from(target.querySelectorAll<HTMLImageElement>("img"));
+
+  return Promise.all(images.map((image) => waitForImage(image, timeoutMs)));
+}
+
 export async function downloadElementAsImage(
   data: ExportListImageData,
   element: ReactElement
@@ -106,10 +227,38 @@ export async function renderElementAsImageBlob(
       root.render(element);
     });
 
+    options.onDebugStep?.("waiting-fonts");
+    await waitForFonts(3000);
+    options.onDebugStep?.("fonts-ready");
+
     await new Promise((resolve) => window.requestAnimationFrame(resolve));
     await new Promise((resolve) => window.setTimeout(resolve, 100));
 
+    options.onDebugStep?.("collecting-images");
+    const imageStatus = await collectImageStatuses(host, 3000);
+    const incompleteImageCount = imageStatus.filter(
+      (image) =>
+        !image.complete ||
+        image.naturalWidth === 0 ||
+        image.naturalHeight === 0 ||
+        image.loadStatus !== "loaded"
+    ).length;
+    options.onDebugStep?.("images-ready", {
+      imageCount: imageStatus.length,
+      incompleteImageCount,
+      images: imageStatus,
+    });
+
     const captureHeight = Math.ceil(host.scrollHeight || host.offsetHeight);
+
+    options.onDebugStep?.("render-start", {
+      functionName: "html2canvas",
+      targetWidth: EXPORT_IMAGE_WIDTH,
+      targetHeight: captureHeight,
+      imageCount: imageStatus.length,
+      incompleteImageCount,
+      pixelRatio,
+    });
 
     const canvas = await html2canvas(host, {
       allowTaint: false,
@@ -117,7 +266,12 @@ export async function renderElementAsImageBlob(
       foreignObjectRendering: false,
       height: captureHeight,
       ignoreElements: (target) =>
-        target.hasAttribute("data-html2canvas-ignore"),
+        target.hasAttribute("data-html2canvas-ignore") ||
+        Boolean(
+          options.excludeExternalImages &&
+          target instanceof HTMLImageElement &&
+            isExternalImage(target)
+        ),
       imageTimeout: 15000,
       logging: false,
       onclone: (clonedDocument) => {
@@ -138,6 +292,10 @@ export async function renderElementAsImageBlob(
         "RENDER_FAILED",
         error
       );
+    });
+    options.onDebugStep?.("render-complete", {
+      outputWidth: canvas.width,
+      outputHeight: canvas.height,
     });
 
     const blob = await new Promise<Blob>((resolve, reject) => {
@@ -164,6 +322,11 @@ export async function renderElementAsImageBlob(
           )
         );
       }
+    });
+    options.onDebugStep?.("blob-created", {
+      type: blob.type,
+      size: blob.size,
+      sizeMb: Number((blob.size / 1024 / 1024).toFixed(2)),
     });
 
     return {

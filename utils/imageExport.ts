@@ -7,7 +7,6 @@ import { handleImageSave } from "@/utils/imageSaver";
 const EXPORT_IMAGE_WIDTH = 720;
 
 type RenderElementAsImageBlobOptions = {
-  debug?: boolean;
   pixelRatio?: number;
 };
 
@@ -111,8 +110,6 @@ export async function renderElementAsImageBlob(
     await new Promise((resolve) => window.setTimeout(resolve, 100));
 
     const captureHeight = Math.ceil(host.scrollHeight || host.offsetHeight);
-    const sourceWidth = EXPORT_IMAGE_WIDTH;
-    const sourceHeight = captureHeight;
 
     const canvas = await html2canvas(host, {
       allowTaint: false,
@@ -169,21 +166,13 @@ export async function renderElementAsImageBlob(
       }
     });
 
-    if (options.debug) {
-      console.debug("[generated-image-debug]", {
-        sourceWidth,
-        sourceHeight,
-        outputWidth: canvas.width,
-        outputHeight: canvas.height,
-        pixelRatio,
-        devicePixelRatio: window.devicePixelRatio,
-        blobType: blob.type,
-        blobSize: blob.size,
-        blobSizeMb: Number((blob.size / 1024 / 1024).toFixed(2)),
-      });
-    }
-
-    return { blob, fileName };
+    return {
+      blob,
+      fileName,
+      outputWidth: canvas.width,
+      outputHeight: canvas.height,
+      pixelRatio,
+    };
   } finally {
     root.unmount();
     host.remove();

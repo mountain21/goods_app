@@ -65,9 +65,6 @@ type Props = {
   initialListId?: string | null;
 };
 
-const TEST_PNG_BASE64 =
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
-
 function formatYen(value: number) {
   return `¥${value.toLocaleString("ja-JP")}`;
 }
@@ -78,19 +75,6 @@ function qKey(goodsId: string, variantId: string | null) {
 
 function getDefaultListName(eventName: string) {
   return `${eventName || "イベント"} 買い物リスト`;
-}
-
-function createPreparedTestPngBlob() {
-  if (typeof atob === "undefined") return null;
-
-  const binary = atob(TEST_PNG_BASE64);
-  const bytes = new Uint8Array(binary.length);
-
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-
-  return new Blob([bytes], { type: "image/png" });
 }
 
 function createListPayload({
@@ -128,6 +112,7 @@ export function GoodsCalculatorClient({
   const searchParams = useSearchParams();
   const { toast } = useToast();
   const importInputRef = useRef<HTMLInputElement | null>(null);
+  const debugPngBlobRef = useRef<Blob | null>(null);
   const showImageDownloadDebug =
     searchParams.get("debug_image_download") === "1";
 
@@ -141,7 +126,7 @@ export function GoodsCalculatorClient({
   const [hasLoadedStorage, setHasLoadedStorage] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
   const [isSavingImage, setIsSavingImage] = useState(false);
-  const [preparedTestBlob, setPreparedTestBlob] = useState<Blob | null>(null);
+  const [isDebugPngReady, setIsDebugPngReady] = useState(false);
 
   const goodsById = useMemo(
     () => new Map(goods.map((good) => [good.goods_id, good])),
@@ -301,11 +286,41 @@ export function GoodsCalculatorClient({
   useEffect(() => {
     if (!showImageDownloadDebug) return;
 
-    const timeoutId = window.setTimeout(() => {
-      setPreparedTestBlob(createPreparedTestPngBlob());
-    }, 0);
+    let cancelled = false;
 
-    return () => window.clearTimeout(timeoutId);
+    void fetch("/debug/test-download.png", {
+      cache: "no-store",
+    })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`固定PNGの取得に失敗しました: ${response.status}`);
+        }
+
+        return response.blob();
+      })
+      .then(async (blob) => {
+        const signature = new Uint8Array(await blob.slice(0, 8).arrayBuffer());
+
+        console.debug("[fixed-png-debug]", {
+          type: blob.type,
+          size: blob.size,
+          signature: Array.from(signature)
+            .map((value) => value.toString(16).padStart(2, "0"))
+            .join(" "),
+        });
+
+        if (!cancelled) {
+          debugPngBlobRef.current = blob;
+          setIsDebugPngReady(true);
+        }
+      })
+      .catch((error) => {
+        console.error("[fixed-png-debug] preload failed", error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [showImageDownloadDebug]);
 
   const saveShoppingList = (forceNew: boolean) => {
@@ -486,9 +501,14 @@ export function GoodsCalculatorClient({
   };
 
   const handlePreparedBlobDownload = () => {
-    if (!preparedTestBlob) return;
+    const blob = debugPngBlobRef.current;
 
-    downloadBlob(preparedTestBlob, "test-download.png");
+    if (!blob) {
+      console.error("[fixed-png-debug] PNG is not ready");
+      return;
+    }
+
+    downloadBlob(blob, "test-download.png");
   };
 
   return (
@@ -745,7 +765,7 @@ export function GoodsCalculatorClient({
                 size="sm"
                 variant="outline"
                 onClick={handlePreparedBlobDownload}
-                disabled={!preparedTestBlob}
+                disabled={!isDebugPngReady}
               >
                 固定PNG Blob
               </Button>

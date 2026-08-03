@@ -98,6 +98,7 @@ async function loadSelectableEvents() {
   const { data, error } = await supabase
     .from("events")
     .select("event_id, artist_name, event_name, event_start_date, event_end_date, image_url")
+    .eq("show_flag", true)
     .order("event_start_date", { ascending: false });
 
   if (error) {
@@ -114,6 +115,7 @@ async function loadCalculatorData(eventId: string) {
     .from("events")
     .select("*")
     .eq("event_id", eventId)
+    .eq("show_flag", true)
     .maybeSingle();
 
   if (eventError) {

@@ -53,9 +53,9 @@ type Good = {
   item_name: string;
   price: number;
   image_url?: string | null;
-  max_quantity: number;
+  max_quantity: string | null;
+  limit_label?: string | null;
   has_variants: boolean;
-  limit_label: string;
   variants?: GoodsVariant[];
 };
 

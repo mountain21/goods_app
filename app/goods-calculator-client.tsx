@@ -53,8 +53,9 @@ type Good = {
   item_name: string;
   price: number;
   image_url?: string | null;
-  max_quantity: string;
+  max_quantity: number;
   has_variants: boolean;
+  limit_label: string;
   variants?: GoodsVariant[];
 };
 
@@ -594,7 +595,7 @@ export function GoodsCalculatorClient({
                   </div>
                   {good.max_quantity != null && (
                     <div className="text-sm text-slate-600">
-                      {good.max_quantity}点まで
+                      {good.limit_label? `${good.limit_label} ${good.max_quantity}点まで`: `${good.max_quantity}点まで`}
                     </div>
                   )}
                 </div>

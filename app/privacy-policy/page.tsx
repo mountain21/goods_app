@@ -91,7 +91,7 @@ export default function PrivacyPolicyPage() {
               プライバシーポリシー
             </h1>
             <p className="text-sm text-slate-600">
-              グッズ計算アプリにおける個人情報、Cookie、広告配信に関する取扱いを定めます。
+              グッズ計算機における個人情報、Cookie、広告配信に関する取扱いを定めます。
             </p>
             <p className="text-sm text-slate-500">最終更新日: 2026年8月3日</p>
           </div>
